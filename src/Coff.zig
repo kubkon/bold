@@ -660,6 +660,7 @@ fn reportUndefs(self: *Coff) !void {
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
         const err = try self.base.addErrorWithNotes(nnotes);
+        defer err.unlock();
         try err.addMsg("undefined symbol: {s}", .{undef_sym.getName(self)});
         has_undefs = true;
 
@@ -681,6 +682,7 @@ fn reportUndefs(self: *Coff) !void {
         if (sym.getFile(self)) |_| continue;
         has_undefs = true;
         const err = try self.base.addErrorWithNotes(1);
+        defer err.unlock();
         try err.addMsg("undefined symbol: {s}", .{sym.getName(self)});
         try err.addNote("/force command line option", .{});
     }

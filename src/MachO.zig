@@ -468,6 +468,7 @@ fn resolvePaths(
                 .lib => {
                     const full_path = (try self.resolveLib(arena, lib_dirs, obj.path)) orelse {
                         const err = try self.base.addErrorWithNotes(lib_dirs.len);
+                        defer err.unlock();
                         try err.addMsg("library not found for {}", .{obj});
                         for (lib_dirs) |dir| try err.addNote("tried {s}", .{dir});
                         has_resolve_error = true;
@@ -478,6 +479,7 @@ fn resolvePaths(
                 .framework => {
                     const full_path = (try self.resolveFramework(arena, framework_dirs, obj.path)) orelse {
                         const err = try self.base.addErrorWithNotes(framework_dirs.len);
+                        defer err.unlock();
                         try err.addMsg("framework not found for {}", .{obj});
                         for (framework_dirs) |dir| try err.addNote("tried {s}", .{dir});
                         has_resolve_error = true;
@@ -642,6 +644,7 @@ fn parseFatFile(self: *MachO, obj: LinkObject, file: std.fs.File) !?fat.Arch {
         return error.MissingArch;
     } else {
         const err = try self.base.addErrorWithNotes(1 + fat_archs.len);
+        defer err.unlock();
         try err.addMsg("{s}: ignoring universal file as no architecture specified", .{obj.path});
         for (fat_archs) |arch| {
             try err.addNote("universal file built for {s}", .{@tagName(arch.tag)});
@@ -1207,7 +1210,8 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
         const notes = self.dupes.get(key).?;
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
-        var err = try self.base.addErrorWithNotes(nnotes + 1);
+        const err = try self.base.addErrorWithNotes(nnotes + 1);
+        defer err.unlock();
         try err.addMsg("duplicate symbol definition: {s}", .{sym.getName(self)});
         try err.addNote("defined by {}", .{sym.getFile(self).?.fmtPath()});
 
@@ -1329,6 +1333,7 @@ fn reportUndefs(self: *MachO) !void {
         };
 
         const err = try addFn(&self.base, nnotes);
+        defer err.unlock();
         try err.addMsg("undefined symbol: {s}", .{undef_sym.getName(self)});
 
         switch (notes) {
