@@ -59,6 +59,7 @@ const usage =
     \\-needed-l[name]                    Link against library (even if unused)
     \\  -needed_library [name]           
     \\-no_deduplicate                    Do not run deduplication pass in linker
+    \\-no_fixup_chains                   Do not emit fixup chains
     \\-no_implicit_dylibs                Do not hoist public dylibs/frameworks into the final image.
     \\-o [path]                          Specify output path for the final artifact
     \\-ObjC                              Force load all members of static archives that implement an
@@ -135,6 +136,7 @@ all_load: bool = false,
 force_load_objc: bool = false,
 adhoc_codesign: ?bool = null,
 exported_symbols: []const []const u8 = &[0][]const u8{},
+fixup_chains: bool = false, // TODO default should be true but probably depends on the host version
 
 pub fn parse(arena: Allocator, args: []const []const u8, ctx: anytype) !Options {
     if (args.len == 0) ctx.fatal(usage ++ "\n", .{cmd});
@@ -337,6 +339,8 @@ pub fn parse(arena: Allocator, args: []const []const u8, ctx: anytype) !Options 
             opts.no_deduplicate = true;
         } else if (p.flag1("no_implicit_dylibs")) {
             opts.no_implicit_dylibs = true;
+        } else if (p.flag1("no_fixup_chains")) {
+            opts.fixup_chains = false;
         } else if (p.flag1("two_levelnamespace")) {
             opts.namespace = .two_level;
         } else if (p.flag1("flat_namespace")) {
