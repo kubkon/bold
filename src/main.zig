@@ -111,25 +111,26 @@ pub fn main() !void {
 
     const ld = try Ld.openPath(gpa, tag, opts, &thread_pool);
     defer ld.deinit();
-    ld.flush() catch |err| switch (err) {
-        error.FlushFailed,
-        error.InferCpuFailed,
-        error.ParseFailed,
-        error.HasDuplicates,
-        error.UndefinedSymbols,
-        error.RelocError,
-        error.ResolveFailed,
-        error.Unimplemented,
-        => {
-            ld.reportWarnings();
-            ld.reportErrors();
-            std.process.exit(1);
-        },
-        else => |e| {
-            ld.reportErrors();
-            print("unexpected linker error: {s}\n", .{@errorName(e)});
-            return e;
-        },
-    };
+    const res = ld.flush();
     ld.reportWarnings();
+    ld.reportErrors();
+    res catch |err| {
+        switch (err) {
+            error.FlushFailed,
+            error.InferCpuFailed,
+            error.ParseFailed,
+            error.HasDuplicates,
+            error.UndefinedSymbols,
+            error.RelocError,
+            error.ResolveFailed,
+            error.Unimplemented,
+            => {
+                std.process.exit(1);
+            },
+            else => |e| {
+                print("unexpected linker error: {s}\n", .{@errorName(e)});
+                return e;
+            },
+        }
+    };
 }

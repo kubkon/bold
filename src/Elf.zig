@@ -289,6 +289,7 @@ pub fn flush(self: *Elf) !void {
 
     if (has_parse_error) {
         const err = try self.base.addErrorWithNotes(search_dirs.items.len);
+        defer err.unlock();
         try err.addMsg("library search paths", .{});
         for (search_dirs.items) |dir| {
             try err.addNote("  {s}", .{dir});
@@ -1901,7 +1902,8 @@ fn reportDuplicates(self: *Elf) error{ HasDuplicates, OutOfMemory }!void {
         const sym = self.resolver.keys.items[key - 1];
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
-        var err = try self.base.addErrorWithNotes(nnotes + 1);
+        const err = try self.base.addErrorWithNotes(nnotes + 1);
+        defer err.unlock();
         try err.addMsg("duplicate symbol definition: {s}", .{sym.getName(self)});
         try err.addNote("defined by {}", .{sym.getFile(self).?.fmtPath()});
 
@@ -1930,7 +1932,8 @@ fn reportUndefs(self: *Elf) !void {
         const nrefs = @min(refs.items.len, max_notes);
         const nnotes = nrefs + @intFromBool(refs.items.len > max_notes);
 
-        var err = try self.base.addErrorWithNotes(nnotes);
+        const err = try self.base.addErrorWithNotes(nnotes);
+        defer err.unlock();
         try err.addMsg("undefined symbol: {s}", .{undef_sym.getName(self)});
 
         for (refs.items[0..nrefs]) |ref| {

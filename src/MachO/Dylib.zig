@@ -158,6 +158,7 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
             }
         } else {
             const err = try macho_file.base.addErrorWithNotes(1 + platforms.items.len);
+            defer err.unlock();
             try err.addMsg("{s}: object file was built for different platforms than required {s}", .{
                 self.path,
                 @tagName(plat.platform),

@@ -34,6 +34,7 @@ const usage =
     \\-dylib                             Create dynamic library
     \\-dynamic                           Perform dynamic linking
     \\-e [name]                          Specifies the entry point of main executable
+    \\-execute                           Create an executable (default)
     \\-exported_symbol [name]            Marks symbol [name] as global
     \\-exported_symbols_list [filename]  Specifies which symbols are to be marked as global
     \\--entitlements                     Add path to entitlements file for embedding in code signature
@@ -53,6 +54,7 @@ const usage =
     \\  -dylib_install_name
     \\-l[name]                           Link against library
     \\-L[path]                           Add search path for libraries
+    \\-macos_version_min [version]       Set oldest macOS version that the output can be used on.
     \\-needed_framework [name]           Link against framework (even if unused)
     \\-needed-l[name]                    Link against library (even if unused)
     \\  -needed_library [name]           
@@ -240,6 +242,8 @@ pub fn parse(arena: Allocator, args: []const []const u8, ctx: anytype) !Options 
                 error.FileNotFound => ctx.fatal("Specified file in -exported_symbols_list {s} does not exist\n", .{filename}),
                 else => |e| return e,
             };
+        } else if (p.flag1("execute")) {
+            opts.dylib = false;
         } else if (p.arg1("e")) |name| {
             opts.entry = name;
         } else if (p.arg1("undefined")) |treatment| {
@@ -276,6 +280,10 @@ pub fn parse(arena: Allocator, args: []const []const u8, ctx: anytype) !Options 
             } else {
                 ctx.fatal("Could not parse CPU architecture from '{s}'\n", .{value});
             }
+        } else if (p.arg1("macos_version_min")) |ver| {
+            const min_ver = Version.parse(ver) orelse
+                ctx.fatal("Unable to parse version from '{s}'\n", .{version});
+            opts.platform = .{ .platform = .MACOS, .version = min_ver };
         } else if (p.arg1("platform_version")) |platform_s| {
             // TODO clunky!
             const min_v = it.next() orelse

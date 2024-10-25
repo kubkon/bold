@@ -254,11 +254,13 @@ pub fn flush(base: *Ld) !void {
 
 pub fn warn(base: *Ld, comptime format: []const u8, args: anytype) void {
     const warning = base.addWarningWithNotes(0) catch return;
+    defer warning.unlock();
     warning.addMsg(format, args) catch return;
 }
 
 pub fn fatal(base: *Ld, comptime format: []const u8, args: anytype) void {
     const err = base.addErrorWithNotes(0) catch return;
+    defer err.unlock();
     err.addMsg(format, args) catch return;
 }
 
@@ -266,6 +268,7 @@ pub const ErrorWithNotes = struct {
     err_index: usize,
     allocator: Allocator,
     errors: []ErrorMsg,
+    lock: *std.Thread.Mutex,
 
     pub fn addMsg(err: ErrorWithNotes, comptime format: []const u8, args: anytype) !void {
         const err_msg = err.getErrorMsg();
@@ -283,26 +286,40 @@ pub const ErrorWithNotes = struct {
         assert(err.err_index < err.errors.len);
         return &err.errors[err.err_index];
     }
+
+    pub fn unlock(err: ErrorWithNotes) void {
+        err.lock.unlock();
+    }
 };
 
 pub fn addErrorWithNotes(base: *Ld, note_count: usize) !ErrorWithNotes {
     base.errors_mutex.lock();
-    defer base.errors_mutex.unlock();
+    errdefer base.errors_mutex.unlock();
     const err_index = base.errors.items.len;
     const err_msg = try base.errors.addOne(base.allocator);
     err_msg.* = .{ .msg = undefined };
     try err_msg.notes.ensureTotalCapacityPrecise(base.allocator, note_count);
-    return .{ .err_index = err_index, .allocator = base.allocator, .errors = base.errors.items };
+    return .{
+        .err_index = err_index,
+        .allocator = base.allocator,
+        .errors = base.errors.items,
+        .lock = &base.errors_mutex,
+    };
 }
 
 pub fn addWarningWithNotes(base: *Ld, note_count: usize) !ErrorWithNotes {
     base.warnings_mutex.lock();
-    defer base.warnings_mutex.unlock();
+    errdefer base.warnings_mutex.unlock();
     const err_index = base.warnings.items.len;
     const err_msg = try base.warnings.addOne(base.allocator);
     err_msg.* = .{ .msg = undefined };
     try err_msg.notes.ensureTotalCapacityPrecise(base.allocator, note_count);
-    return .{ .err_index = err_index, .allocator = base.allocator, .errors = base.warnings.items };
+    return .{
+        .err_index = err_index,
+        .allocator = base.allocator,
+        .errors = base.warnings.items,
+        .lock = &base.warnings_mutex,
+    };
 }
 
 pub fn getAllWarningsAlloc(base: *Ld) !ErrorBundle {
