@@ -476,7 +476,7 @@ fn emitReloc(elf_file: *Elf, rec: anytype, sym: Symbol, rel: elf.Elf64_Rela) elf
     };
 }
 
-pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
+pub fn writeEhFrameRelocs(elf_file: *Elf, relocs: *std.ArrayList(elf.Elf64_Rela)) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -490,8 +490,7 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
             for (cie.getRelocs(elf_file)) |rel| {
                 const sym_ref = object.resolveSymbol(rel.r_sym(), elf_file);
                 const sym = elf_file.getSymbol(sym_ref).?;
-                const out_rel = emitReloc(elf_file, cie, sym.*, rel);
-                try writer.writeStruct(out_rel);
+                try relocs.append(emitReloc(elf_file, cie, sym.*, rel));
             }
         }
 
@@ -500,8 +499,7 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, writer: anytype) !void {
             for (fde.getRelocs(elf_file)) |rel| {
                 const sym_ref = object.resolveSymbol(rel.r_sym(), elf_file);
                 const sym = elf_file.getSymbol(sym_ref).?;
-                const out_rel = emitReloc(elf_file, fde, sym.*, rel);
-                try writer.writeStruct(out_rel);
+                try relocs.append(emitReloc(elf_file, fde, sym.*, rel));
             }
         }
     }

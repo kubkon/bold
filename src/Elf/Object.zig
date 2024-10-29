@@ -406,6 +406,11 @@ fn parseEhFrame(self: *Object, allocator: Allocator, file: std.fs.File, shndx: u
     }
 }
 
+/// We expect relocations sorted by r_offset in relocation tables as per this
+/// comment in mold linker
+/// https://github.com/rui314/mold/blob/8e4f7b53832d8af4f48a633a8385cbc932d1944e/src/input-files.cc#L653.
+/// There are exceptions to this however, namely, RISCV and Loongarch
+/// do not follow this convention.
 fn sortRelocs(relocs: []elf.Elf64_Rela, ctx: *Elf) void {
     const sortFn = struct {
         fn lessThan(c: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
