@@ -217,6 +217,13 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
 
     const gpa = elf_file.base.allocator;
 
+    const SortRelocs = struct {
+        pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
+            _ = ctx;
+            return lhs.r_offset < rhs.r_offset;
+        }
+    };
+
     for (elf_file.sections.items(.rela_shndx), elf_file.sections.items(.atoms)) |rela_shndx, atoms| {
         if (atoms.items.len == 0) continue;
 
@@ -233,14 +240,6 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
             try atom.writeRelocs(elf_file, &relocs);
         }
         assert(relocs.items.len == num_relocs);
-
-        const SortRelocs = struct {
-            pub fn lessThan(ctx: void, lhs: elf.Elf64_Rela, rhs: elf.Elf64_Rela) bool {
-                _ = ctx;
-                return lhs.r_offset < rhs.r_offset;
-            }
-        };
-
         mem.sort(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
 
         log.debug("writing {s} from 0x{x} to 0x{x}", .{
@@ -268,17 +267,19 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
 
         const rela_shndx = elf_file.sections.items(.rela_shndx)[shndx];
         const rela_shdr = elf_file.sections.items(.shdr)[rela_shndx];
-        buffer.clearRetainingCapacity();
-        try buffer.ensureTotalCapacityPrecise(rela_shdr.sh_size);
-        try eh_frame.writeEhFrameRelocs(elf_file, buffer.writer());
+        const num_relocs = @divExact(rela_shdr.sh_size, rela_shdr.sh_entsize);
+        var relocs = try std.ArrayList(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
+        defer relocs.deinit();
+        try eh_frame.writeEhFrameRelocs(elf_file, &relocs);
+        assert(relocs.items.len == num_relocs);
+        mem.sort(elf.Elf64_Rela, relocs.items, {}, SortRelocs.lessThan);
 
         log.debug("writing .rela.eh_frame from 0x{x} to 0x{x}", .{
             rela_shdr.sh_offset,
             rela_shdr.sh_offset + rela_shdr.sh_size,
         });
 
-        assert(buffer.items.len == rela_shdr.sh_size);
-        try elf_file.base.file.pwriteAll(buffer.items, rela_shdr.sh_offset);
+        try elf_file.base.file.pwriteAll(mem.sliceAsBytes(relocs.items), rela_shdr.sh_offset);
     }
 
     try writeComdatGroup(elf_file);

@@ -2042,27 +2042,48 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     );
     obj2.addArg("-lc++");
 
+    const obj3 = zig(b, "c.o", .obj);
+    obj3.addCppSource(
+        \\#include <iostream>
+        \\#include <stdexcept>
+        \\extern int try_again();
+        \\int main() {
+        \\  try {
+        \\    try_again();
+        \\  } catch (const std::exception &e) {
+        \\    std::cout << "exception=" << e.what();
+        \\  }
+        \\  return 0;
+        \\}
+    );
+    obj3.addArg("-lc++");
+
     {
-        const obj3 = ld(b, "c.o", opts);
-        obj3.addFileSource(obj1.getFile());
-        obj3.addFileSource(obj2.getFile());
-        obj3.addArg("-r");
+        const obj4 = ld(b, "d.o", opts);
+        obj4.addFileSource(obj1.getFile());
+        obj4.addFileSource(obj2.getFile());
+        obj4.addArg("-r");
 
         const exe = zig(b, "a.out", .exe);
-        exe.addCppSource(
-            \\#include <iostream>
-            \\#include <stdexcept>
-            \\extern int try_again();
-            \\int main() {
-            \\  try {
-            \\    try_again();
-            \\  } catch (const std::exception &e) {
-            \\    std::cout << "exception=" << e.what();
-            \\  }
-            \\  return 0;
-            \\}
-        );
         exe.addFileSource(obj3.getFile());
+        exe.addFileSource(obj4.getFile());
+        exe.addArg("-lc++");
+
+        const run = exe.run();
+        run.expectStdOutEqual("exception=Oh no!");
+        test_step.dependOn(run.step());
+    }
+
+    {
+        // Flipping the order should not matter.
+        const obj4 = ld(b, "d.o", opts);
+        obj4.addFileSource(obj2.getFile());
+        obj4.addFileSource(obj1.getFile());
+        obj4.addArg("-r");
+
+        const exe = zig(b, "a.out", .exe);
+        exe.addFileSource(obj3.getFile());
+        exe.addFileSource(obj4.getFile());
         exe.addArg("-lc++");
 
         const run = exe.run();
@@ -2072,22 +2093,6 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
 
     {
         // Let's make the object file COMDAT group heavy!
-        const obj3 = zig(b, "c.o", .obj);
-        obj3.addCppSource(
-            \\#include <iostream>
-            \\#include <stdexcept>
-            \\extern int try_again();
-            \\int main() {
-            \\  try {
-            \\    try_again();
-            \\  } catch (const std::exception &e) {
-            \\    std::cout << "exception=" << e.what();
-            \\  }
-            \\  return 0;
-            \\}
-        );
-        obj3.addArg("-lc++");
-
         const obj4 = ld(b, "d.o", opts);
         obj4.addFileSource(obj1.getFile());
         obj4.addFileSource(obj2.getFile());
