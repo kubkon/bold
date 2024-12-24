@@ -2,7 +2,7 @@
   description = "Emerald linker";
 
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-23.05";
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
     zig.url = "github:mitchellh/zig-overlay";
     zls.url = "github:zigtools/zls";
@@ -35,12 +35,24 @@
       system: let
         pkgs = import nixpkgs {inherit overlays system;};
       in rec {
+        commonInputs = with pkgs; [
+          zigpkgs."0.13.0"
+        ];
+
+        tracy-version = "0.10";
+        tracy-src = pkgs.fetchFromGitHub {
+          owner = "wolfpld";
+          repo = "tracy";
+          rev = "v${tracy-version}";
+          hash = "sha256-DN1ExvQ5wcIUyhMAfiakFbZkDsx+5l8VMtYGvSdboPA=";
+        };
+
         packages.default = packages.emerald;
-        packages.emerald = pkgs.stdenvNoCC.mkDerivation {
+        packages.emerald = pkgs.stdenv.mkDerivation {
           name = "emerald";
           version = "master";
           src = ./.;
-          nativeBuildInputs = [ pkgs.zigpkgs."0.13.0" ];
+          nativeBuildInputs = commonInputs;
           dontConfigure = true;
           dontInstall = true;
           doCheck = false; # TODO enable this
@@ -53,12 +65,13 @@
           '';
         };
 
-        devShells.default = pkgs.stdenvNoCC.mkDerivation {
-          name = "emerald";
-          nativeBuildInputs = with pkgs; [
-            zigpkgs."0.13.0"
+        devShells.default = pkgs.mkShell {
+          buildInputs = commonInputs ++ (with pkgs; [
             zlspkgs.default
-          ];
+            tracy
+          ]);
+
+          TRACY_PATH = "${tracy-src}/public";
         };
 
         # For compatibility with older versions of the `nix` binary
