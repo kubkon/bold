@@ -25,6 +25,8 @@ const usage =
     \\-no_adhoc_codesign                 Does not generate adhoc code signature
     \\-all_load                          Loads all members of all static archive libraries
     \\-arch [name]                       Specifies which architecture the output file should be
+    \\-arch_multiple                     Specifies that the linker should augment error and warning
+    \\                                   messages with the architecture name.
     \\-current_version [value]           Specifies the current version number of the library
     \\-compatibility_version [value]     Specifies the compatibility version number of the library
     \\-dead_strip                        Remove functions and data that are unreachable by the entry point or 
@@ -105,6 +107,7 @@ dylib: bool = false,
 relocatable: bool = false,
 dynamic: bool = false,
 cpu_arch: ?std.Target.Cpu.Arch = null,
+arch_multiple: bool = false,
 platform: ?Platform = null,
 sdk_version: ?Version = null,
 inferred_platform_versions: [supported_platforms.len]Platform = undefined,
@@ -282,6 +285,8 @@ pub fn parse(arena: Allocator, args: []const []const u8, ctx: anytype) !Options 
             } else {
                 ctx.fatal("Could not parse CPU architecture from '{s}'\n", .{value});
             }
+        } else if (p.flag1("arch_multiple")) {
+            opts.arch_multiple = true;
         } else if (p.arg1("macos_version_min")) |ver| {
             const min_ver = Version.parse(ver) orelse
                 ctx.fatal("Unable to parse version from '{s}'\n", .{version});
