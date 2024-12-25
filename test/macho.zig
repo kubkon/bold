@@ -21,6 +21,7 @@ pub fn addMachOTests(b: *Build, options: common.Options) *Step {
     };
 
     macho_step.dependOn(testAllLoad(b, opts));
+    macho_step.dependOn(testArchMultiple(b, opts));
     macho_step.dependOn(testBuildVersionMacOS(b, opts));
     macho_step.dependOn(testBuildVersionIOS(b, opts));
     macho_step.dependOn(testDeadStrip(b, opts));
@@ -150,6 +151,29 @@ fn testAllLoad(b: *Build, opts: Options) *Step {
         run.expectExitCode(1);
         test_step.dependOn(run.step());
     }
+
+    return test_step;
+}
+
+fn testArchMultiple(b: *Build, opts: Options) *Step {
+    const test_step = b.step("test-macho-arch-multiple", "");
+
+    if (true) return skipTestStep(test_step); // TODO we cannot yet test expected errors
+
+    const obj = cc(b, "a.o", opts);
+    obj.addCSource(
+        \\extern void foo();
+        \\int main() {
+        \\  foo();
+        \\}
+    );
+    obj.addArgs(&.{ "-c", "-arch", "x86_64" });
+
+    const exe = ld(b, "a.out", opts);
+    exe.addFileSource(obj.getFile());
+    exe.addArgs(&.{ "-dynamic", "-syslibroot", opts.macos_sdk, "-lSystem", "-lc", "-arch_multiple" });
+
+    // TODO check expected error here
 
     return test_step;
 }
