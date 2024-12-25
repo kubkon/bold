@@ -3968,8 +3968,8 @@ fn testUnwindInfoNoSubsectionsX64(b: *Build, opts: Options) *Step {
     );
     a_o.addArg("-c");
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\int foo();
         \\int main() {
@@ -3977,6 +3977,10 @@ fn testUnwindInfoNoSubsectionsX64(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(a_o.getFile());
 
     const run = exe.run();
@@ -4028,8 +4032,8 @@ fn testWeakBind(b: *Build, opts: Options) *Step {
         test_step.dependOn(&check.step);
     }
 
-    const exe = cc(b, "a.out", opts);
-    exe.addAsmSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addAsmSource(
         \\.globl _main, _weak_external, _weak_external_for_gotpcrel, _weak_external_fn
         \\.weak_definition _weak_external, _weak_external_for_gotpcrel, _weak_external_fn, _weak_internal, _weak_internal_for_gotpcrel, _weak_internal_fn
         \\
@@ -4086,6 +4090,10 @@ fn testWeakBind(b: *Build, opts: Options) *Step {
         \\  .quad 0
         \\  .quad _weak_internal_tlv$tlv$init
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(lib.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", lib.getDir());
 
