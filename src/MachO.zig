@@ -1334,7 +1334,19 @@ fn reportUndefs(self: *MachO) !void {
 
         const err = try addFn(&self.base, nnotes);
         defer err.unlock();
-        try err.addMsg("undefined symbol: {s}", .{undef_sym.getName(self)});
+
+        if (self.options.arch_multiple) {
+            // When clang is invoked with two -arch flags, it will pass -arch_multiple and -final_output to the linker.
+            // According to LLD implementation [1], -arch_multiple is only used to signal to the linker that it should
+            // suffix undefined symbols errors/warnings with current architecture.
+            // [1]: https://reviews.llvm.org/D105450
+            try err.addMsg("undefined symbol for architecture {s}: {s}", .{
+                @tagName(self.options.cpu_arch.?),
+                undef_sym.getName(self),
+            });
+        } else {
+            try err.addMsg("undefined symbol: {s}", .{undef_sym.getName(self)});
+        }
 
         switch (notes) {
             .force_undefined => try err.addNote("referenced with linker flag -u", .{}),
