@@ -53,15 +53,16 @@
           version = "master";
           src = ./.;
           nativeBuildInputs = commonInputs;
+          buildInputs = commonInputs;
           dontConfigure = true;
           dontInstall = true;
-          doCheck = false; # TODO enable this
+          doCheck = true;
           buildPhase = ''
             mkdir -p .cache
             zig build install -Doptimize=ReleaseFast --prefix $out --cache-dir $(pwd)/.zig-cache --global-cache-dir $(pwd)/.cache 
           '';
           checkPhase = ''
-            zig build test -Dhas-zig --cache-dir $(pwd)/.zig-cache --global-cache-dir $(pwd)/.cache
+            zig build test -Dnix --cache-dir $(pwd)/.zig-cache --global-cache-dir $(pwd)/.cache
           '';
         };
 
