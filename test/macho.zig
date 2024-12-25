@@ -37,6 +37,7 @@ pub fn addMachOTests(b: *Build, options: common.Options) *Step {
     macho_step.dependOn(testExportedSymbol(b, opts));
     macho_step.dependOn(testFatArchive(b, opts));
     macho_step.dependOn(testFatDylib(b, opts));
+    macho_step.dependOn(testFinalOutput(b, opts));
     macho_step.dependOn(testFlatNamespace(b, opts));
     macho_step.dependOn(testFlatNamespaceExe(b, opts));
     macho_step.dependOn(testFlatNamespaceWeak(b, opts));
@@ -916,6 +917,37 @@ fn testFatDylib(b: *Build, opts: Options) *Step {
     const run = exe.run();
     run.expectStdOutEqual("42\n");
     test_step.dependOn(run.step());
+
+    return test_step;
+}
+
+fn testFinalOutput(b: *Build, opts: Options) *Step {
+    const test_step = b.step("test-macho-final-output", "");
+
+    const dylib = cc(b, "liba.dylib", opts);
+    dylib.addCSource("int foo = 42;");
+    dylib.addArgs(&.{ "-shared", "-arch", "arm64", "-arch", "x86_64" });
+
+    const exe = cc(b, "main", opts);
+    exe.addCSource(
+        \\#include<stdio.h>
+        \\extern int foo;
+        \\int main() {
+        \\  printf("%d\n", foo);
+        \\  return 0;
+        \\}
+    );
+    exe.addFileSource(dylib.getFile());
+
+    const run = exe.run();
+    run.expectStdOutEqual("42\n");
+    test_step.dependOn(run.step());
+
+    const check = exe.check();
+    check.checkInHeaders();
+    check.checkExact("cmd LOAD_DYLIB");
+    check.checkContainsPath("name", dylib.getFile());
+    test_step.dependOn(&check.step);
 
     return test_step;
 }

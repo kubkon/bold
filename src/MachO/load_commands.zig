@@ -52,8 +52,7 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) u32 {
     // LC_ID_DYLIB
     if (options.dylib) {
         sizeofcmds += blk: {
-            const emit = options.emit;
-            const install_name = options.install_name orelse emit.sub_path;
+            const install_name = macho_file.getInstallName();
             break :blk calcInstallNameLen(
                 @sizeOf(macho.dylib_command),
                 install_name,
@@ -206,10 +205,10 @@ pub fn writeDylibLC(ctx: WriteDylibLCCtx, writer: anytype) !void {
     }
 }
 
-pub fn writeDylibIdLC(options: *const Options, writer: anytype) !void {
+pub fn writeDylibIdLC(macho_file: *const MachO, writer: anytype) !void {
+    const options = macho_file.options;
     assert(options.dylib);
-    const emit = options.emit;
-    const install_name = options.install_name orelse emit.sub_path;
+    const install_name = macho_file.getInstallName();
     const curr = options.current_version orelse Options.Version.new(1, 0, 0);
     const compat = options.compatibility_version orelse Options.Version.new(1, 0, 0);
     try writeDylibLC(.{
