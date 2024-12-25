@@ -42,6 +42,8 @@ const usage =
     \\--entitlements                     Add path to entitlements file for embedding in code signature
     \\-filelist [file[,dirname]]         Specifies a list of files to link. If the optional [dirname] is
     \\                                   specified, it is prepended to each filename in the list file.
+    \\-final_output                      Specify dylib install name if -install_name is not used. This flags
+    \\                                   is used by compiler driver for multiple -arch arguments.
     \\-flat_namespace                    Use flat namespace dylib resolution strategy
     \\-force_load [path]                 Loads all members of the specified static archive library
     \\-framework [name]                  Link against framework
@@ -140,6 +142,7 @@ force_load_objc: bool = false,
 adhoc_codesign: ?bool = null,
 exported_symbols: []const []const u8 = &[0][]const u8{},
 fixup_chains: bool = false, // TODO default should be true but probably depends on the host version
+final_output: ?[]const u8 = null,
 
 pub fn parse(arena: Allocator, args: []const []const u8, ctx: anytype) !Options {
     if (args.len == 0) ctx.fatal(usage ++ "\n", .{cmd});
@@ -374,6 +377,8 @@ pub fn parse(arena: Allocator, args: []const []const u8, ctx: anytype) !Options 
         } else if (p.argLLVM()) |opt| {
             // Skip any LTO flags since we cannot handle it at the moment anyhow.
             std.log.debug("TODO unimplemented -mllvm {s} option", .{opt});
+        } else if (p.arg1("final_output")) |name| {
+            opts.final_output = name;
         } else if (mem.startsWith(u8, p.arg, "-")) {
             try unknown_options.appendSlice(p.arg);
             try unknown_options.append('\n');

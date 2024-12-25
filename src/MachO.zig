@@ -2486,7 +2486,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, usize } {
     }
 
     if (self.options.dylib) {
-        try load_commands.writeDylibIdLC(&self.options, writer);
+        try load_commands.writeDylibIdLC(self, writer);
         ncmds += 1;
     }
 
@@ -2675,6 +2675,19 @@ pub inline fn getPageSize(self: MachO) u16 {
         .x86_64 => 0x1000,
         else => unreachable,
     };
+}
+
+pub fn getInstallName(self: MachO) []const u8 {
+    // According to [1], when clang is invoked with two -arch flags, it will:
+    // 1. call the linker driver twice, once for each arch
+    // 2. call `lipo` tool to merge two outputs into a single file
+    // `emit.sub_path` is the name of the temporary file the linker writes to.
+    // `final_output` is the name of the file lipo writes to after the link.
+    // [1]: https://reviews.llvm.org/D105449
+    const install_name = self.options.install_name orelse blk: {
+        break :blk self.options.final_output orelse self.options.emit.sub_path;
+    };
+    return install_name;
 }
 
 pub fn requiresCodeSig(self: MachO) bool {
