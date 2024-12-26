@@ -18,4 +18,4 @@ jobs:
         version: 0.13.0
     - run: zig version
     - run: zig fmt --check src 
-    - run: zig build test -Dhas-static -Dhas-zig -Dhas-objc-msgsend-stubs
+    - run: zig build test -Dhas-zig -Dhas-objc-msgsend-stubs
