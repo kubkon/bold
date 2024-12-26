@@ -7,28 +7,35 @@ pub fn addTests(b: *Build, comp: *Compile, build_opts: struct {
     test_step.dependOn(&comp.step);
 
     const ld = WriteFile.create(b).addCopyFile(comp.getEmittedBin(), "ld");
-    const opts: Options = .{
+    var opts = Options{
         .ld = ld,
         .has_zig = build_opts.has_zig,
         .has_objc_msgsend_stubs = build_opts.has_objc_msgsend_stubs,
         .is_nix = build_opts.is_nix,
+        .macos_sdk = undefined,
+        .ios_sdk = null,
+    };
+    opts.macos_sdk = std.zig.system.darwin.getSdk(b.allocator, builtin.target) orelse @panic("no macOS SDK found");
+    opts.ios_sdk = blk: {
+        const target = std.zig.system.resolveTargetQuery(.{
+            .cpu_arch = .aarch64,
+            .os_tag = .ios,
+        }) catch break :blk null;
+        break :blk std.zig.system.darwin.getSdk(b.allocator, target);
     };
 
-    test_step.dependOn(macho.addTests(b, opts));
+    macho.addTests(test_step, opts);
 
     return test_step;
 }
 
-pub const SystemCompiler = enum {
-    gcc,
-    clang,
-};
-
 pub const Options = struct {
     ld: LazyPath,
-    has_zig: bool = false,
-    has_objc_msgsend_stubs: bool = false,
-    is_nix: bool = false,
+    has_zig: bool,
+    has_objc_msgsend_stubs: bool,
+    macos_sdk: []const u8,
+    ios_sdk: ?[]const u8,
+    is_nix: bool,
 };
 
 /// A system command that tracks the command itself via `cmd` Step.Run and output file

@@ -1,97 +1,76 @@
-pub fn addTests(b: *Build, options: common.Options) *Step {
-    const macho_step = b.step("test-macho", "Run MachO tests");
+pub fn addTests(step: *Step, opts: Options) void {
+    const b = step.owner;
 
-    if (builtin.target.os.tag != .macos) return skipTestStep(macho_step);
-
-    var opts = Options{
-        .ld = options.ld,
-        .has_zig = options.has_zig,
-        .has_objc_msgsend_stubs = options.has_objc_msgsend_stubs,
-        .macos_sdk = undefined,
-        .ios_sdk = null,
-        .is_nix = options.is_nix,
-    };
-    opts.macos_sdk = std.zig.system.darwin.getSdk(b.allocator, builtin.target) orelse @panic("no macOS SDK found");
-    opts.ios_sdk = blk: {
-        const target = std.zig.system.resolveTargetQuery(.{
-            .cpu_arch = .aarch64,
-            .os_tag = .ios,
-        }) catch break :blk null;
-        break :blk std.zig.system.darwin.getSdk(b.allocator, target);
-    };
-
-    macho_step.dependOn(testAllLoad(b, opts));
-    macho_step.dependOn(testArchMultiple(b, opts));
-    macho_step.dependOn(testBuildVersionMacOS(b, opts));
-    macho_step.dependOn(testBuildVersionIOS(b, opts));
-    macho_step.dependOn(testDeadStrip(b, opts));
-    macho_step.dependOn(testDeadStripDylibs(b, opts));
-    macho_step.dependOn(testDylib(b, opts));
-    macho_step.dependOn(testDylibReexport(b, opts));
-    macho_step.dependOn(testDylibReexportDeep(b, opts));
-    macho_step.dependOn(testDylibVersionTbd(b, opts));
-    macho_step.dependOn(testEmptyObject(b, opts));
-    macho_step.dependOn(testEntryPoint(b, opts));
-    macho_step.dependOn(testEntryPointArchive(b, opts));
-    macho_step.dependOn(testEntryPointDylib(b, opts));
-    macho_step.dependOn(testExportedSymbol(b, opts));
-    macho_step.dependOn(testFatArchive(b, opts));
-    macho_step.dependOn(testFatDylib(b, opts));
-    macho_step.dependOn(testFinalOutput(b, opts));
-    macho_step.dependOn(testFlatNamespace(b, opts));
-    macho_step.dependOn(testFlatNamespaceExe(b, opts));
-    macho_step.dependOn(testFlatNamespaceWeak(b, opts));
-    macho_step.dependOn(testForceLoad(b, opts));
-    macho_step.dependOn(testHeaderpad(b, opts));
-    macho_step.dependOn(testHeaderWeakFlags(b, opts));
-    macho_step.dependOn(testHelloC(b, opts));
-    macho_step.dependOn(testHelloZig(b, opts));
-    macho_step.dependOn(testLayout(b, opts));
-    macho_step.dependOn(testLargeBss(b, opts));
-    macho_step.dependOn(testLinkOrder(b, opts));
-    macho_step.dependOn(testLoadHidden(b, opts));
-    macho_step.dependOn(testMergeLiterals(b, opts));
-    macho_step.dependOn(testMergeLiterals2(b, opts));
-    macho_step.dependOn(testMergeLiteralsAlignment(b, opts));
-    macho_step.dependOn(testMergeLiteralsObjc(b, opts));
-    macho_step.dependOn(testMhExecuteHeader(b, opts));
-    macho_step.dependOn(testNeededFramework(b, opts));
-    macho_step.dependOn(testNeededLibrary(b, opts));
-    macho_step.dependOn(testNoDeadStrip(b, opts));
-    macho_step.dependOn(testNoExportsDylib(b, opts));
-    macho_step.dependOn(testObjc(b, opts));
-    macho_step.dependOn(testObjcStubs(b, opts));
-    macho_step.dependOn(testObjcStubs2(b, opts));
-    macho_step.dependOn(testObjCpp(b, opts));
-    macho_step.dependOn(testPagezeroSize(b, opts));
-    macho_step.dependOn(testReexportsZig(b, opts));
-    macho_step.dependOn(testRelocatable(b, opts));
-    macho_step.dependOn(testRelocatableZig(b, opts));
-    macho_step.dependOn(testSearchStrategy(b, opts));
-    macho_step.dependOn(testSectionBoundarySymbols(b, opts));
-    macho_step.dependOn(testSectionBoundarySymbols2(b, opts));
-    macho_step.dependOn(testSegmentBoundarySymbols(b, opts));
-    macho_step.dependOn(testStackSize(b, opts));
-    macho_step.dependOn(testSymbolStabs(b, opts));
-    macho_step.dependOn(testSymbolStabs2(b, opts));
-    macho_step.dependOn(testTbdv3(b, opts));
-    macho_step.dependOn(testTentative(b, opts));
-    macho_step.dependOn(testThunks(b, opts));
-    macho_step.dependOn(testTls(b, opts));
-    macho_step.dependOn(testTlsLargeTbss(b, opts));
-    macho_step.dependOn(testTlsPointers(b, opts));
-    macho_step.dependOn(testTwoLevelNamespace(b, opts));
-    macho_step.dependOn(testUndefinedFlag(b, opts));
-    macho_step.dependOn(testUnwindInfo(b, opts));
-    macho_step.dependOn(testUnwindInfoNoSubsectionsArm64(b, opts));
-    macho_step.dependOn(testUnwindInfoNoSubsectionsX64(b, opts));
-    macho_step.dependOn(testWeakBind(b, opts));
-    macho_step.dependOn(testWeakFramework(b, opts));
-    macho_step.dependOn(testWeakLibrary(b, opts));
-    macho_step.dependOn(testWeakRef(b, opts));
-    macho_step.dependOn(testWeakRef2(b, opts));
-
-    return macho_step;
+    step.dependOn(testAllLoad(b, opts));
+    step.dependOn(testArchMultiple(b, opts));
+    step.dependOn(testBuildVersionMacOS(b, opts));
+    step.dependOn(testBuildVersionIOS(b, opts));
+    step.dependOn(testDeadStrip(b, opts));
+    step.dependOn(testDeadStripDylibs(b, opts));
+    step.dependOn(testDylib(b, opts));
+    step.dependOn(testDylibReexport(b, opts));
+    step.dependOn(testDylibReexportDeep(b, opts));
+    step.dependOn(testDylibVersionTbd(b, opts));
+    step.dependOn(testEmptyObject(b, opts));
+    step.dependOn(testEntryPoint(b, opts));
+    step.dependOn(testEntryPointArchive(b, opts));
+    step.dependOn(testEntryPointDylib(b, opts));
+    step.dependOn(testExportedSymbol(b, opts));
+    step.dependOn(testFatArchive(b, opts));
+    step.dependOn(testFatDylib(b, opts));
+    step.dependOn(testFinalOutput(b, opts));
+    step.dependOn(testFlatNamespace(b, opts));
+    step.dependOn(testFlatNamespaceExe(b, opts));
+    step.dependOn(testFlatNamespaceWeak(b, opts));
+    step.dependOn(testForceLoad(b, opts));
+    step.dependOn(testHeaderpad(b, opts));
+    step.dependOn(testHeaderWeakFlags(b, opts));
+    step.dependOn(testHelloC(b, opts));
+    step.dependOn(testHelloZig(b, opts));
+    step.dependOn(testLayout(b, opts));
+    step.dependOn(testLargeBss(b, opts));
+    step.dependOn(testLinkOrder(b, opts));
+    step.dependOn(testLoadHidden(b, opts));
+    step.dependOn(testMergeLiterals(b, opts));
+    step.dependOn(testMergeLiterals2(b, opts));
+    step.dependOn(testMergeLiteralsAlignment(b, opts));
+    step.dependOn(testMergeLiteralsObjc(b, opts));
+    step.dependOn(testMhExecuteHeader(b, opts));
+    step.dependOn(testNeededFramework(b, opts));
+    step.dependOn(testNeededLibrary(b, opts));
+    step.dependOn(testNoDeadStrip(b, opts));
+    step.dependOn(testNoExportsDylib(b, opts));
+    step.dependOn(testObjc(b, opts));
+    step.dependOn(testObjcStubs(b, opts));
+    step.dependOn(testObjcStubs2(b, opts));
+    step.dependOn(testObjCpp(b, opts));
+    step.dependOn(testPagezeroSize(b, opts));
+    step.dependOn(testReexportsZig(b, opts));
+    step.dependOn(testRelocatable(b, opts));
+    step.dependOn(testRelocatableZig(b, opts));
+    step.dependOn(testSearchStrategy(b, opts));
+    step.dependOn(testSectionBoundarySymbols(b, opts));
+    step.dependOn(testSectionBoundarySymbols2(b, opts));
+    step.dependOn(testSegmentBoundarySymbols(b, opts));
+    step.dependOn(testStackSize(b, opts));
+    step.dependOn(testSymbolStabs(b, opts));
+    step.dependOn(testSymbolStabs2(b, opts));
+    step.dependOn(testTbdv3(b, opts));
+    step.dependOn(testTentative(b, opts));
+    step.dependOn(testThunks(b, opts));
+    step.dependOn(testTls(b, opts));
+    step.dependOn(testTlsLargeTbss(b, opts));
+    step.dependOn(testTlsPointers(b, opts));
+    step.dependOn(testTwoLevelNamespace(b, opts));
+    step.dependOn(testUndefinedFlag(b, opts));
+    step.dependOn(testUnwindInfo(b, opts));
+    step.dependOn(testUnwindInfoNoSubsectionsArm64(b, opts));
+    step.dependOn(testUnwindInfoNoSubsectionsX64(b, opts));
+    step.dependOn(testWeakBind(b, opts));
+    step.dependOn(testWeakFramework(b, opts));
+    step.dependOn(testWeakLibrary(b, opts));
+    step.dependOn(testWeakRef(b, opts));
+    step.dependOn(testWeakRef2(b, opts));
 }
 
 fn testAllLoad(b: *Build, opts: Options) *Step {
@@ -4243,15 +4222,6 @@ fn testWeakRef2(b: *Build, opts: Options) *Step {
     return test_step;
 }
 
-const Options = struct {
-    ld: LazyPath,
-    has_zig: bool,
-    has_objc_msgsend_stubs: bool,
-    macos_sdk: []const u8,
-    ios_sdk: ?[]const u8,
-    is_nix: bool,
-};
-
 fn cc(b: *Build, name: []const u8, opts: Options) SysCmd {
     const cmd = Run.create(b, "cc");
     cmd.addArgs(&.{ "cc", "-fno-lto", "-O0" });
@@ -4308,6 +4278,7 @@ const skipTestStep = common.skipTestStep;
 const Build = std.Build;
 const Compile = Step.Compile;
 const LazyPath = Build.LazyPath;
+const Options = common.Options;
 const Run = Step.Run;
 const Step = Build.Step;
 const SysCmd = common.SysCmd;
