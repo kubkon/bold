@@ -281,7 +281,7 @@ fn testBuildVersionIOS(b: *Build, opts: Options) *Step {
 fn testDeadStrip(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-dead-strip", "");
 
-    const obj = cc(b, "a.o", opts);
+    const obj = cpp(b, "a.o", opts);
     obj.addCppSource(
         \\#include <stdio.h>
         \\int two() { return 2; }
@@ -301,7 +301,7 @@ fn testDeadStrip(b: *Build, opts: Options) *Step {
     obj.addArg("-c");
 
     {
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj.getFile());
 
         const check = exe.check();
@@ -329,7 +329,7 @@ fn testDeadStrip(b: *Build, opts: Options) *Step {
     }
 
     {
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj.getFile());
         exe.addArg("-Wl,-dead_strip");
 
@@ -2688,7 +2688,7 @@ fn testReexportsZig(b: *Build, opts: Options) *Step {
 fn testRelocatable(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-relocatable", "");
 
-    const a_o = cc(b, "a.o", opts);
+    const a_o = cpp(b, "a.o", opts);
     a_o.addCppSource(
         \\#include <stdexcept>
         \\int try_me() {
@@ -2697,7 +2697,7 @@ fn testRelocatable(b: *Build, opts: Options) *Step {
     );
     a_o.addArg("-c");
 
-    const b_o = cc(b, "b.o", opts);
+    const b_o = cpp(b, "b.o", opts);
     b_o.addCppSource(
         \\extern int try_me();
         \\int try_again() {
@@ -2706,7 +2706,7 @@ fn testRelocatable(b: *Build, opts: Options) *Step {
     );
     b_o.addArg("-c");
 
-    const main_o = cc(b, "main.o", opts);
+    const main_o = cpp(b, "main.o", opts);
     main_o.addCppSource(
         \\#include <iostream>
         \\#include <stdexcept>
@@ -2730,10 +2730,9 @@ fn testRelocatable(b: *Build, opts: Options) *Step {
         c_o.addFileSource(b_o.getFile());
         c_o.addArg("-r");
 
-        const exe = cc(b, "a.out", opts);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(main_o.getFile());
         exe.addFileSource(c_o.getFile());
-        exe.addArg("-lc++");
 
         const run = exe.run();
         run.expectStdOutEqual(exp_stdout);
@@ -2747,9 +2746,8 @@ fn testRelocatable(b: *Build, opts: Options) *Step {
         c_o.addFileSource(main_o.getFile());
         c_o.addArg("-r");
 
-        const exe = cc(b, "a.out", opts);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(c_o.getFile());
-        exe.addArg("-lc++");
 
         const run = exe.run();
         run.expectStdOutEqual(exp_stdout);
@@ -2902,13 +2900,13 @@ fn testSearchStrategy(b: *Build, opts: Options) *Step {
 fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-section-boundary-symbols", "");
 
-    const obj1 = cc(b, "a.o", opts);
+    const obj1 = cpp(b, "a.o", opts);
     obj1.addCppSource(
         \\constexpr const char* MESSAGE __attribute__((used, section("__DATA_CONST,__message_ptr"))) = "codebase";
     );
     obj1.addArgs(&.{ "-std=c++17", "-c" });
 
-    const main_o = cc(b, "main.o", opts);
+    const main_o = cpp(b, "main.o", opts);
     main_o.addCSource(
         \\#include <stdio.h>
         \\const char* interop();
@@ -2920,7 +2918,7 @@ fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
     main_o.addArg("-c");
 
     {
-        const obj2 = cc(b, "b.o", opts);
+        const obj2 = cpp(b, "b.o", opts);
         obj2.addCppSource(
             \\extern const char* message_pointer __asm("section$start$__DATA_CONST$__message_ptr");
             \\extern "C" const char* interop() {
@@ -2929,7 +2927,7 @@ fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
         );
         obj2.addArgs(&.{ "-std=c++17", "-c" });
 
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj1.getFile());
         exe.addFileSource(obj2.getFile());
         exe.addFileSource(main_o.getFile());
@@ -2945,7 +2943,7 @@ fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
     }
 
     {
-        const obj2 = cc(b, "b.o", opts);
+        const obj2 = cpp(b, "b.o", opts);
         obj2.addCppSource(
             \\extern const char* message_pointer __asm("section$start$__DATA_CONST$__not_present");
             \\extern "C" const char* interop() {
@@ -2954,7 +2952,7 @@ fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
         );
         obj2.addArgs(&.{ "-std=c++17", "-c" });
 
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj1.getFile());
         exe.addFileSource(obj2.getFile());
         exe.addFileSource(main_o.getFile());
@@ -3012,13 +3010,13 @@ fn testSectionBoundarySymbols2(b: *Build, opts: Options) *Step {
 fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-segment-boundary-symbols", "");
 
-    const obj1 = cc(b, "a.o", opts);
+    const obj1 = cpp(b, "a.o", opts);
     obj1.addCppSource(
         \\constexpr const char* MESSAGE __attribute__((used, section("__DATA_CONST_1,__message_ptr"))) = "codebase";
     );
     obj1.addArgs(&.{ "-std=c++17", "-c" });
 
-    const main_o = cc(b, "main.o", opts);
+    const main_o = cpp(b, "main.o", opts);
     main_o.addCSource(
         \\#include <stdio.h>
         \\const char* interop();
@@ -3030,7 +3028,7 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
     main_o.addArg("-c");
 
     {
-        const obj2 = cc(b, "b.o", opts);
+        const obj2 = cpp(b, "b.o", opts);
         obj2.addCppSource(
             \\extern const char* message_pointer __asm("segment$start$__DATA_CONST_1");
             \\extern "C" const char* interop() {
@@ -3039,7 +3037,7 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
         );
         obj2.addArgs(&.{ "-std=c++17", "-c" });
 
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj1.getFile());
         exe.addFileSource(obj2.getFile());
         exe.addFileSource(main_o.getFile());
@@ -3055,7 +3053,7 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
     }
 
     {
-        const obj2 = cc(b, "b.o", opts);
+        const obj2 = cpp(b, "b.o", opts);
         obj2.addCppSource(
             \\extern const char* message_pointer __asm("segment$start$__DATA_1");
             \\extern "C" const char* interop() {
@@ -3064,7 +3062,7 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
         );
         obj2.addArgs(&.{ "-std=c++17", "-c" });
 
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj1.getFile());
         exe.addFileSource(obj2.getFile());
         exe.addFileSource(main_o.getFile());
@@ -3574,7 +3572,7 @@ fn testTlsPointers(b: *Build, opts: Options) *Step {
         \\};
     );
 
-    const bar_o = cc(b, "bar.o", opts);
+    const bar_o = cpp(b, "bar.o", opts);
     bar_o.addCppSource(
         \\#include "foo.h"
         \\int bar() {
@@ -3585,7 +3583,7 @@ fn testTlsPointers(b: *Build, opts: Options) *Step {
     bar_o.addArgs(&.{ "-c", "-std=c++17" });
     bar_o.addPrefixedDirectorySource("-I", includes.getDirectory());
 
-    const baz_o = cc(b, "baz.o", opts);
+    const baz_o = cpp(b, "baz.o", opts);
     baz_o.addCppSource(
         \\#include "foo.h"
         \\int baz() {
@@ -3596,7 +3594,7 @@ fn testTlsPointers(b: *Build, opts: Options) *Step {
     baz_o.addArgs(&.{ "-c", "-std=c++17" });
     baz_o.addPrefixedDirectorySource("-I", includes.getDirectory());
 
-    const main_o = cc(b, "main.o", opts);
+    const main_o = cpp(b, "main.o", opts);
     main_o.addCppSource(
         \\extern int bar();
         \\extern int baz();
@@ -3609,11 +3607,10 @@ fn testTlsPointers(b: *Build, opts: Options) *Step {
     main_o.addArgs(&.{ "-c", "-std=c++17" });
     main_o.addPrefixedDirectorySource("-I", includes.getDirectory());
 
-    const exe = cc(b, "a.out", opts);
+    const exe = cpp(b, "a.out", opts);
     exe.addFileSource(bar_o.getFile());
     exe.addFileSource(baz_o.getFile());
     exe.addFileSource(main_o.getFile());
-    exe.addArg("-lc++");
 
     const run = exe.run();
     run.expectExitCode(0);
@@ -3827,23 +3824,22 @@ fn testUnwindInfo(b: *Build, opts: Options) *Step {
     ;
 
     const flags: []const []const u8 = &.{ "-std=c++17", "-c" };
-    const obj = cc(b, "main.o", opts);
+    const obj = cpp(b, "main.o", opts);
     obj.addCppSource(main_c);
     obj.addPrefixedDirectorySource("-I", all_h.dirname());
     obj.addArgs(flags);
 
-    const obj1 = cc(b, "simple_string.o", opts);
+    const obj1 = cpp(b, "simple_string.o", opts);
     obj1.addCppSource(simple_string_c);
     obj1.addPrefixedDirectorySource("-I", all_h.dirname());
     obj1.addArgs(flags);
 
-    const obj2 = cc(b, "simple_string_owner.o", opts);
+    const obj2 = cpp(b, "simple_string_owner.o", opts);
     obj2.addCppSource(simple_string_owner_c);
     obj2.addPrefixedDirectorySource("-I", all_h.dirname());
     obj2.addArgs(flags);
 
-    const exe = cc(b, "main", opts);
-    exe.addArgs(&.{ "-lc++", "-lSystem", "-lc" });
+    const exe = cpp(b, "main", opts);
     exe.addFileSource(obj.getFile());
     exe.addFileSource(obj1.getFile());
     exe.addFileSource(obj2.getFile());
@@ -4261,6 +4257,15 @@ const Options = struct {
 fn cc(b: *Build, name: []const u8, opts: Options) SysCmd {
     const cmd = Run.create(b, "cc");
     cmd.addArgs(&.{ opts.cc_override orelse "cc", "-fno-lto", "-O0" });
+    cmd.addArg("-o");
+    const out = cmd.addOutputFileArg(name);
+    cmd.addPrefixedDirectorySourceArg("-B", opts.ld.dirname());
+    return .{ .cmd = cmd, .out = out };
+}
+
+fn cpp(b: *Build, name: []const u8, opts: Options) SysCmd {
+    const cmd = Run.create(b, "c++");
+    cmd.addArgs(&.{ "c++", "-fno-lto", "-O0" });
     cmd.addArg("-o");
     const out = cmd.addOutputFileArg(name);
     cmd.addPrefixedDirectorySourceArg("-B", opts.ld.dirname());

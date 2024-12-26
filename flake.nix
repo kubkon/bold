@@ -61,6 +61,7 @@
             mkdir -p .cache
             zig build install -Doptimize=ReleaseFast --prefix $out --cache-dir $(pwd)/.zig-cache --global-cache-dir $(pwd)/.cache 
           '';
+          # TODO why -Dhas-zig doesn't work?
           checkPhase = ''
             zig build test -Dnix --cache-dir $(pwd)/.zig-cache --global-cache-dir $(pwd)/.cache
           '';
