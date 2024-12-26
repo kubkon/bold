@@ -959,7 +959,7 @@ fn testFuncAddress(b: *Build, opts: Options) *Step {
 fn testGcSections(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-elf-gc-sections", "");
 
-    const obj = cc(b, "a.o", opts);
+    const obj = cpp(b, "a.o", opts);
     obj.addCppSource(
         \\#include <stdio.h>
         \\int two() { return 2; }
@@ -979,7 +979,7 @@ fn testGcSections(b: *Build, opts: Options) *Step {
     obj.addArgs(&.{ "-c", "-ffunction-sections", "-fdata-sections" });
 
     {
-        const exe = cc(b, "a.out", opts);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(obj.getFile());
 
         const run = exe.run();
@@ -1007,7 +1007,7 @@ fn testGcSections(b: *Build, opts: Options) *Step {
     }
 
     {
-        const exe = cc(b, "a.out", opts);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(obj.getFile());
         exe.addArg("-Wl,-gc-sections");
 
@@ -2097,7 +2097,7 @@ fn testRelocatableArchive(b: *Build, opts: Options) *Step {
 fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-elf-relocatable-eh-frame", "");
 
-    const obj1 = cc(b, "a.o", opts);
+    const obj1 = cpp(b, "a.o", opts);
     obj1.addCppSource(
         \\#include <stdexcept>
         \\int try_me() {
@@ -2106,7 +2106,7 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     );
     obj1.addArg("-c");
 
-    const obj2 = cc(b, "b.o", opts);
+    const obj2 = cpp(b, "b.o", opts);
     obj2.addCppSource(
         \\extern int try_me();
         \\int try_again() {
@@ -2115,7 +2115,7 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     );
     obj2.addArg("-c");
 
-    const obj3 = cc(b, "c.o", opts);
+    const obj3 = cpp(b, "c.o", opts);
     obj3.addCppSource(
         \\#include <iostream>
         \\#include <stdexcept>
@@ -2137,10 +2137,9 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         obj4.addFileSource(obj2.getFile());
         obj4.addArg("-r");
 
-        const exe = cc(b, "a.out", opts);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(obj3.getFile());
         exe.addFileSource(obj4.getFile());
-        exe.addArg("-lc++");
 
         const run = exe.run();
         run.expectStdOutEqual("exception=Oh no!");
@@ -2154,10 +2153,9 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         obj4.addFileSource(obj1.getFile());
         obj4.addArg("-r");
 
-        const exe = cc(b, "a.out", opts);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(obj3.getFile());
         exe.addFileSource(obj4.getFile());
-        exe.addArg("-lc++");
 
         const run = exe.run();
         run.expectStdOutEqual("exception=Oh no!");
@@ -2172,9 +2170,8 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         obj4.addFileSource(obj3.getFile());
         obj4.addArg("-r");
 
-        const exe = cc(b, "a.out", opts);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(obj4.getFile());
-        exe.addArg("-lc++");
 
         const run = exe.run();
         run.expectStdOutEqual("exception=Oh no!");
@@ -3845,6 +3842,15 @@ fn forceTlsDialect(cmd: SysCmd, dialect: enum { desc, trad }) void {
 fn cc(b: *Build, name: []const u8, opts: Options) SysCmd {
     const cmd = Run.create(b, "cc");
     cmd.addArgs(&.{ opts.cc_override orelse "cc", "-fno-lto" });
+    cmd.addArg("-o");
+    const out = cmd.addOutputFileArg(name);
+    cmd.addPrefixedDirectorySourceArg("-B", opts.ld.dirname());
+    return .{ .cmd = cmd, .out = out };
+}
+
+fn cpp(b: *Build, name: []const u8, opts: Options) SysCmd {
+    const cmd = Run.create(b, "c++");
+    cmd.addArgs(&.{ "c++", "-fno-lto" });
     cmd.addArg("-o");
     const out = cmd.addOutputFileArg(name);
     cmd.addPrefixedDirectorySourceArg("-B", opts.ld.dirname());
