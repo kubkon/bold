@@ -1,11 +1,12 @@
 allocator: Allocator,
 file: fs.File,
 thread_pool: *ThreadPool,
+options: Options,
+
 warnings: std.ArrayListUnmanaged(ErrorMsg) = .{},
 warnings_mutex: std.Thread.Mutex = .{},
 errors: std.ArrayListUnmanaged(ErrorMsg) = .{},
 errors_mutex: std.Thread.Mutex = .{},
-options: Options,
 
 dyld_info_cmd: macho.dyld_info_command = .{},
 symtab_cmd: macho.symtab_command = .{},
@@ -158,7 +159,7 @@ pub fn deinit(self: *MachO) void {
     self.data_in_code.deinit(gpa);
 }
 
-pub fn flush(self: *MachO) !void {
+pub fn link(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 

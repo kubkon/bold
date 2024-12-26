@@ -32,7 +32,7 @@ pub fn addTests(b: *Build, comp: *Compile, build_opts: struct {
         .is_nix = build_opts.is_nix,
     };
 
-    test_step.dependOn(macho.addMachOTests(b, opts));
+    test_step.dependOn(macho.addTests(b, opts));
 
     return test_step;
 }

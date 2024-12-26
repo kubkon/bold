@@ -83,7 +83,7 @@ pub fn main() !void {
 
     var ld = try MachO.openPath(gpa, opts, &thread_pool);
     defer ld.deinit();
-    const res = ld.flush();
+    const res = ld.link();
     ld.reportWarnings();
     ld.reportErrors();
     res catch |err| {

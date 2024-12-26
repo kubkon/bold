@@ -1,4 +1,4 @@
-pub fn addMachOTests(b: *Build, options: common.Options) *Step {
+pub fn addTests(b: *Build, options: common.Options) *Step {
     const macho_step = b.step("test-macho", "Run MachO tests");
 
     if (builtin.target.os.tag != .macos) return skipTestStep(macho_step);
