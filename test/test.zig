@@ -4,6 +4,7 @@ pub fn addTests(b: *Build, comp: *Compile, build_opts: struct {
     has_zig: bool,
     is_musl: bool,
     has_objc_msgsend_stubs: bool,
+    is_nix: bool,
 }) *Step {
     const test_step = b.step("test-system-tools", "Run all system tools tests");
     test_step.dependOn(&comp.step);
@@ -28,6 +29,7 @@ pub fn addTests(b: *Build, comp: *Compile, build_opts: struct {
         .has_objc_msgsend_stubs = build_opts.has_objc_msgsend_stubs,
         .is_musl = build_opts.is_musl,
         .cc_override = cc_override,
+        .is_nix = build_opts.is_nix,
     };
 
     test_step.dependOn(macho.addMachOTests(b, opts));
@@ -50,6 +52,7 @@ pub const Options = struct {
     has_objc_msgsend_stubs: bool = false,
     is_musl: bool = false,
     cc_override: ?[]const u8 = null,
+    is_nix: bool = false,
 };
 
 /// A system command that tracks the command itself via `cmd` Step.Run and output file
@@ -118,6 +121,15 @@ pub const SysCmd = struct {
     pub fn addSourceBytes(sys_cmd: SysCmd, bytes: []const u8, @"type": FileType) void {
         const b = sys_cmd.cmd.step.owner;
         const wf = WriteFile.create(b);
+        const lang = switch (@"type") {
+            .c => "-xc",
+            .cpp => "-xc++",
+            .@"asm" => "-xassembler",
+            .objc => "-xobjective-c",
+            .objcpp => "-xobjective-c++",
+            .zig => null,
+        };
+        if (lang) |l| sys_cmd.addArg(l);
         const file = wf.add(switch (@"type") {
             .c => "a.c",
             .cpp => "a.cpp",

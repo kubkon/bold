@@ -108,8 +108,8 @@ fn testAbsSymbols(b: *Build, opts: Options) *Step {
     );
     obj.addArg("-c");
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#define _GNU_SOURCE 1
         \\#include <signal.h>
         \\#include <stdio.h>
@@ -130,8 +130,12 @@ fn testAbsSymbols(b: *Build, opts: Options) *Step {
         \\  foo = 5;
         \\}
     );
-    exe.addArgs(&.{ "-fno-PIC", "-no-pie" });
+    main_o.addArgs(&.{ "-c", "-fno-PIC" });
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(obj.getFile());
+    exe.addArg("-no-pie");
 
     const run = exe.run();
     test_step.dependOn(run.step());
@@ -319,13 +323,16 @@ fn testComment(b: *Build, opts: Options) *Step {
 fn testCommon(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-elf-common", "");
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const a_o = cc(b, "a.o", opts);
+    a_o.addCSource(
         \\int foo;
         \\int bar;
         \\int baz = 42;
     );
-    exe.addCSource(
+    a_o.addArgs(&.{ "-c", "-fcommon" });
+
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include<stdio.h>
         \\int foo;
         \\int bar = 5;
@@ -334,7 +341,11 @@ fn testCommon(b: *Build, opts: Options) *Step {
         \\  printf("%d %d %d\n", foo, bar, baz);
         \\}
     );
-    exe.addArg("-fcommon");
+    main_o.addArgs(&.{ "-c", "-fcommon" });
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(a_o.getFile());
+    exe.addFileSource(main_o.getFile());
 
     const run = exe.run();
     run.expectStdOutEqual("0 5 42\n");
@@ -456,8 +467,15 @@ fn testCopyrelAlias(b: *Build, opts: Options) *Step {
         \\extern int baz __attribute__((alias("foo")));
     );
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const a_o = cc(b, "a.o", opts);
+    a_o.addCSource(
+        \\extern int bar;
+        \\int *get_bar() { return &bar; }
+    );
+    a_o.addArgs(&.{ "-fno-PIC", "-c" });
+
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include<stdio.h>
         \\extern int foo;
         \\extern int *get_bar();
@@ -466,11 +484,12 @@ fn testCopyrelAlias(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     );
-    exe.addCSource(
-        \\extern int bar;
-        \\int *get_bar() { return &bar; }
-    );
-    exe.addArgs(&.{ "-fno-PIC", "-no-pie" });
+    main_o.addArgs(&.{ "-fno-PIC", "-c" });
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(a_o.getFile());
+    exe.addFileSource(main_o.getFile());
+    exe.addArg("-no-pie");
     exe.addFileSource(dso.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
 
@@ -625,16 +644,20 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
     const lib = ar(b, "c.a");
     lib.addFileSource(obj.getFile());
 
-    const exe = cc(b, "a.out", opts);
-    exe.addFileSource(dso.getFile());
-    exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
-    exe.addFileSource(lib.getFile());
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\extern int bar;
         \\int main() {
         \\  return bar - 5;
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
+    exe.addFileSource(dso.getFile());
+    exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
+    exe.addFileSource(lib.getFile());
 
     const run = exe.run();
     test_step.dependOn(run.step());
@@ -650,9 +673,17 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
 fn testEmptyObject(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-elf-empty-object", "");
 
+    const main_o = cc(b, "main.o", opts);
+    main_o.addHelloWorldMain();
+    main_o.addArg("-c");
+
+    const a_o = cc(b, "a.o", opts);
+    a_o.addCSource("");
+    a_o.addArg("-c");
+
     const exe = cc(b, "a.out", opts);
-    exe.addHelloWorldMain();
-    exe.addCSource("");
+    exe.addFileSource(main_o.getFile());
+    exe.addFileSource(a_o.getFile());
 
     const run = exe.run();
     run.expectHelloWorld();
@@ -807,8 +838,8 @@ fn testExportSymbolsFromExe(b: *Build, opts: Options) *Step {
     );
     dso.addArgs(&.{ "-fPIC", "-shared" });
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\void expfn1() {}
         \\void expfn2() {}
         \\void foo();
@@ -819,6 +850,10 @@ fn testExportSymbolsFromExe(b: *Build, opts: Options) *Step {
         \\  foo();
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(dso.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
 
@@ -863,8 +898,8 @@ fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     obj3.addFileSource(obj2.getFile());
     obj3.addArg("-r");
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\void printFoo();
         \\void printBar();
@@ -873,6 +908,10 @@ fn testEmitRelocatable(b: *Build, opts: Options) *Step {
         \\  printBar();
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(obj3.getFile());
 
     const run = exe.run();
@@ -893,8 +932,8 @@ fn testFuncAddress(b: *Build, opts: Options) *Step {
     dso.addCSource("void fn() {}");
     dso.addArgs(&.{ "-fPIC", "-shared" });
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <assert.h>
         \\typedef void Func();
         \\void fn();
@@ -903,9 +942,13 @@ fn testFuncAddress(b: *Build, opts: Options) *Step {
         \\  assert(fn == ptr);
         \\}
     );
+    main_o.addArgs(&.{ "-fno-PIC", "-c" });
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(dso.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
-    exe.addArgs(&.{ "-fno-PIC", "-no-pie" });
+    exe.addArg("-no-pie");
 
     const run = exe.run();
     test_step.dependOn(run.step());
@@ -916,7 +959,7 @@ fn testFuncAddress(b: *Build, opts: Options) *Step {
 fn testGcSections(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-elf-gc-sections", "");
 
-    const obj = cc(b, "a.o", opts);
+    const obj = cpp(b, "a.o", opts);
     obj.addCppSource(
         \\#include <stdio.h>
         \\int two() { return 2; }
@@ -936,7 +979,7 @@ fn testGcSections(b: *Build, opts: Options) *Step {
     obj.addArgs(&.{ "-c", "-ffunction-sections", "-fdata-sections" });
 
     {
-        const exe = cc(b, "a.out", opts);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(obj.getFile());
 
         const run = exe.run();
@@ -964,7 +1007,7 @@ fn testGcSections(b: *Build, opts: Options) *Step {
     }
 
     {
-        const exe = cc(b, "a.out", opts);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(obj.getFile());
         exe.addArg("-Wl,-gc-sections");
 
@@ -1128,8 +1171,8 @@ fn testIfuncDlopen(b: *Build, opts: Options) *Step {
     );
     dso.addArgs(&.{ "-fPIC", "-shared" });
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <dlfcn.h>
         \\#include <assert.h>
         \\#include <stdlib.h>
@@ -1144,9 +1187,13 @@ fn testIfuncDlopen(b: *Build, opts: Options) *Step {
         \\  assert(foo == p);
         \\}
     );
+    main_o.addArgs(&.{ "-fno-PIE", "-c" });
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(dso.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
-    exe.addArgs(&.{ "-fno-PIE", "-no-pie", "-ldl" });
+    exe.addArgs(&.{ "-no-pie", "-ldl" });
 
     const run = exe.run();
     test_step.dependOn(run.step());
@@ -1197,7 +1244,8 @@ fn testIfuncDynamic(b: *Build, opts: Options) *Step {
 
     if (opts.is_musl) return skipTestStep(test_step);
 
-    const main_c =
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\__attribute__((ifunc("resolve_foobar")))
         \\static void foobar(void);
@@ -1211,11 +1259,12 @@ fn testIfuncDynamic(b: *Build, opts: Options) *Step {
         \\int main() {
         \\  foobar();
         \\}
-    ;
+    );
+    main_o.addArg("-c");
 
     {
         const exe = cc(b, "a.out", opts);
-        exe.addCSource(main_c);
+        exe.addFileSource(main_o.getFile());
         exe.addArg("-Wl,-z,lazy");
 
         const run = exe.run();
@@ -1224,7 +1273,7 @@ fn testIfuncDynamic(b: *Build, opts: Options) *Step {
     }
     {
         const exe = cc(b, "a.out", opts);
-        exe.addCSource(main_c);
+        exe.addFileSource(main_o.getFile());
         exe.addArg("-Wl,-z,now");
 
         const run = exe.run();
@@ -1268,8 +1317,9 @@ fn testIfuncFuncPtr(b: *Build, opts: Options) *Step {
 
     if (opts.is_musl) return skipTestStep(test_step);
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const a_o = cc(b, "a.o", opts);
+    a_o.addArgs(&.{ "-fPIC", "-c" });
+    a_o.addCSource(
         \\typedef int Fn();
         \\int foo() __attribute__((ifunc("resolve_foo")));
         \\int real_foo() { return 3; }
@@ -1277,12 +1327,18 @@ fn testIfuncFuncPtr(b: *Build, opts: Options) *Step {
         \\  return real_foo;
         \\}
     );
-    exe.addCSource(
+
+    const b_o = cc(b, "b.o", opts);
+    b_o.addArgs(&.{ "-fPIC", "-c" });
+    b_o.addCSource(
         \\typedef int Fn();
         \\int foo();
         \\Fn *get_foo() { return foo; }
     );
-    exe.addCSource(
+
+    const main_o = cc(b, "main.o", opts);
+    main_o.addArgs(&.{ "-fPIC", "-c" });
+    main_o.addCSource(
         \\#include <stdio.h>
         \\typedef int Fn();
         \\Fn *get_foo();
@@ -1291,7 +1347,11 @@ fn testIfuncFuncPtr(b: *Build, opts: Options) *Step {
         \\  printf("%d\n", f());
         \\}
     );
-    exe.addArg("-fPIC");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(a_o.getFile());
+    exe.addFileSource(b_o.getFile());
+    exe.addFileSource(main_o.getFile());
 
     const run = exe.run();
     run.expectStdOutEqual("3\n");
@@ -1499,8 +1559,12 @@ fn testInitArrayOrder(b: *Build, opts: Options) *Step {
     );
     h_o.addArg("-c");
 
+    const main_o = cc(b, "main.o", opts);
+    main_o.addEmptyMain();
+    main_o.addArg("-c");
+
     const exe = cc(b, "a.out", opts);
-    exe.addEmptyMain();
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(a_o.getFile());
     exe.addFileSource(b_o.getFile());
     exe.addFileSource(c_o.getFile());
@@ -1548,11 +1612,15 @@ fn testLargeAlignmentDso(b: *Build, opts: Options) *Step {
     check.checkComputeCompare("addr2 16 %", .{ .op = .eq, .value = .{ .literal = 0 } });
     test_step.dependOn(&check.step);
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\void greet();
         \\int main() { greet(); }
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(dso.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
 
@@ -1883,16 +1951,19 @@ fn testPltGot(b: *Build, opts: Options) *Step {
     );
     dso.addArgs(&.{ "-fPIC", "-shared" });
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\void ignore(void *);
         \\int hello();
         \\void foo() { ignore(hello); }
         \\int main() { hello(); }
     );
+    main_o.addArgs(&.{ "-c", "-fPIC" });
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(dso.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
-    exe.addArg("-fPIC");
 
     const run = exe.run();
     run.expectStdOutEqual("Hello world\n");
@@ -1945,8 +2016,12 @@ fn testPushPopState(b: *Build, opts: Options) *Step {
     b_so.addCSource("int bar = 1;");
     b_so.addArgs(&.{ "-fPIC", "-shared" });
 
+    const main_o = cc(b, "main.o", opts);
+    main_o.addEmptyMain();
+    main_o.addArg("-c");
+
     const exe = cc(b, "a.out", opts);
-    exe.addEmptyMain();
+    exe.addFileSource(main_o.getFile());
     exe.addArgs(&.{ "-Wl,--as-needed", "-Wl,--push-state", "-Wl,--no-as-needed" });
     exe.addFileSource(a_so.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", a_so.getDir());
@@ -2022,27 +2097,25 @@ fn testRelocatableArchive(b: *Build, opts: Options) *Step {
 fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-elf-relocatable-eh-frame", "");
 
-    if (!opts.has_zig) return skipTestStep(test_step);
-
-    const obj1 = zig(b, "a.o", .obj);
+    const obj1 = cpp(b, "a.o", opts);
     obj1.addCppSource(
         \\#include <stdexcept>
         \\int try_me() {
         \\  throw std::runtime_error("Oh no!");
         \\}
     );
-    obj1.addArg("-lc++");
+    obj1.addArg("-c");
 
-    const obj2 = zig(b, "b.o", .obj);
+    const obj2 = cpp(b, "b.o", opts);
     obj2.addCppSource(
         \\extern int try_me();
         \\int try_again() {
         \\  return try_me();
         \\}
     );
-    obj2.addArg("-lc++");
+    obj2.addArg("-c");
 
-    const obj3 = zig(b, "c.o", .obj);
+    const obj3 = cpp(b, "c.o", opts);
     obj3.addCppSource(
         \\#include <iostream>
         \\#include <stdexcept>
@@ -2056,7 +2129,7 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     );
-    obj3.addArg("-lc++");
+    obj3.addArg("-c");
 
     {
         const obj4 = ld(b, "d.o", opts);
@@ -2064,10 +2137,9 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         obj4.addFileSource(obj2.getFile());
         obj4.addArg("-r");
 
-        const exe = zig(b, "a.out", .exe);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(obj3.getFile());
         exe.addFileSource(obj4.getFile());
-        exe.addArg("-lc++");
 
         const run = exe.run();
         run.expectStdOutEqual("exception=Oh no!");
@@ -2081,10 +2153,9 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         obj4.addFileSource(obj1.getFile());
         obj4.addArg("-r");
 
-        const exe = zig(b, "a.out", .exe);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(obj3.getFile());
         exe.addFileSource(obj4.getFile());
-        exe.addArg("-lc++");
 
         const run = exe.run();
         run.expectStdOutEqual("exception=Oh no!");
@@ -2099,9 +2170,8 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         obj4.addFileSource(obj3.getFile());
         obj4.addArg("-r");
 
-        const exe = zig(b, "a.out", .exe);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(obj4.getFile());
-        exe.addArg("-lc++");
 
         const run = exe.run();
         run.expectStdOutEqual("exception=Oh no!");
@@ -2570,8 +2640,8 @@ fn testTlsDescImport(b: *Build, opts: Options) *Step {
     dso.addArgs(&.{ "-fPIC", "-shared" });
     forceTlsDialect(dso, .desc);
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\extern _Thread_local int foo;
         \\extern _Thread_local int bar;
@@ -2580,7 +2650,11 @@ fn testTlsDescImport(b: *Build, opts: Options) *Step {
         \\  printf("%d %d\n", foo, bar);
         \\}
     );
-    exe.addArgs(&.{"-fPIC"});
+    main_o.addArgs(&.{ "-fPIC", "-c" });
+    forceTlsDialect(main_o, .desc);
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(dso.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
     forceTlsDialect(exe, .desc);
@@ -2691,8 +2765,8 @@ fn testTlsDso(b: *Build, opts: Options) *Step {
     );
     dso.addArgs(&.{ "-fPIC", "-shared" });
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\_Thread_local int foo;
         \\extern _Thread_local int bar;
@@ -2710,6 +2784,10 @@ fn testTlsDso(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(dso.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
 
@@ -3108,8 +3186,8 @@ fn testTlsLargeAlignment(b: *Build, opts: Options) *Step {
 fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-elf-tls-large-tbss", "");
 
-    const exe = cc(b, "a.out", opts);
-    exe.addAsmSource(
+    const a_o = cc(b, "a.o", opts);
+    a_o.addAsmSource(
         \\.globl x, y
         \\.section .tbss,"awT",@nobits
         \\x:
@@ -3118,7 +3196,10 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
         \\y:
         \\.zero 1024
     );
-    exe.addCSource(
+    a_o.addArg("-c");
+
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\extern _Thread_local char x[1024000];
         \\extern _Thread_local char y[1024000];
@@ -3128,6 +3209,11 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
         \\  printf("%d %d %d %d %d %d\n", x[0], x[1], x[1023], y[0], y[1], y[1023]);
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(a_o.getFile());
+    exe.addFileSource(main_o.getFile());
 
     const run = exe.run();
     run.expectStdOutEqual("3 0 5 0 0 0\n");
@@ -3139,16 +3225,23 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
 fn testTlsLargeStaticImage(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-elf-tls-large-static-image", "");
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource("_Thread_local int x[] = { 1, 2, 3, [10000] = 5 };");
-    exe.addCSource(
+    const a_o = cc(b, "a.o", opts);
+    a_o.addCSource("_Thread_local int x[] = { 1, 2, 3, [10000] = 5 };");
+    a_o.addArgs(&.{ "-c", "-fPIC" });
+
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\extern _Thread_local int x[];
         \\int main() {
         \\  printf("%d %d %d %d %d\n", x[0], x[1], x[2], x[3], x[10000]);
         \\}
     );
-    exe.addArg("-fPIC");
+    main_o.addArgs(&.{ "-c", "-fPIC" });
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(a_o.getFile());
+    exe.addFileSource(main_o.getFile());
 
     const run = exe.run();
     run.expectStdOutEqual("1 2 3 0 5\n");
@@ -3217,8 +3310,8 @@ fn testTlsLdDso(b: *Build, opts: Options) *Step {
     );
     dso.addArgs(&.{ "-shared", "-fPIC", "-ftls-model=local-dynamic" });
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\extern int f0();
         \\extern int f1();
@@ -3229,6 +3322,10 @@ fn testTlsLdDso(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(dso.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
 
@@ -3289,8 +3386,14 @@ fn testTlsLdNoPlt(b: *Build, opts: Options) *Step {
 fn testTlsNoPic(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-elf-tls-no-pic", "");
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const a_o = cc(b, "a.o", opts);
+    a_o.addCSource(
+        \\__attribute__((tls_model("global-dynamic"))) _Thread_local int foo;
+    );
+    a_o.addArg("-c");
+
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\__attribute__((tls_model("global-dynamic"))) extern _Thread_local int foo;
         \\__attribute__((tls_model("global-dynamic"))) static _Thread_local int bar;
@@ -3304,9 +3407,11 @@ fn testTlsNoPic(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     );
-    exe.addCSource(
-        \\__attribute__((tls_model("global-dynamic"))) _Thread_local int foo;
-    );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
+    exe.addFileSource(a_o.getFile());
 
     const run = exe.run();
     run.expectStdOutEqual("3 5 3 5\n");
@@ -3385,10 +3490,14 @@ fn testTlsPic(b: *Build, opts: Options) *Step {
     );
     obj.addArgs(&.{ "-fPIC", "-c" });
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\__attribute__((tls_model("global-dynamic"))) _Thread_local int foo = 3;
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(obj.getFile());
 
     const run = exe.run();
@@ -3549,12 +3658,16 @@ fn testWeakUndefDso(b: *Build, opts: Options) *Step {
     dso.addArgs(&.{ "-fPIC", "-shared" });
 
     {
-        const exe = cc(b, "a.out", opts);
-        exe.addCSource(
+        const main_o = cc(b, "main.o", opts);
+        main_o.addCSource(
             \\#include <stdio.h>
             \\int bar();
             \\int main() { printf("bar=%d\n", bar()); }
         );
+        main_o.addArg("-c");
+
+        const exe = cc(b, "a.out", opts);
+        exe.addFileSource(main_o.getFile());
         exe.addFileSource(dso.getFile());
         exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
 
@@ -3564,13 +3677,17 @@ fn testWeakUndefDso(b: *Build, opts: Options) *Step {
     }
 
     {
-        const exe = cc(b, "a.out", opts);
-        exe.addCSource(
+        const main_o = cc(b, "main.o", opts);
+        main_o.addCSource(
             \\#include <stdio.h>
             \\int foo() { return 5; }
             \\int bar();
             \\int main() { printf("bar=%d\n", bar()); }
         );
+        main_o.addArg("-c");
+
+        const exe = cc(b, "a.out", opts);
+        exe.addFileSource(main_o.getFile());
         exe.addFileSource(dso.getFile());
         exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
 
@@ -3673,14 +3790,18 @@ fn testZText(b: *Build, opts: Options) *Step {
     dso.addFileSource(b_o.getFile());
     dso.addArg("-shared");
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\int fnn();
         \\int main() {
         \\  printf("%d\n", fnn());
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(dso.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", dso.getDir());
 
@@ -3721,6 +3842,15 @@ fn forceTlsDialect(cmd: SysCmd, dialect: enum { desc, trad }) void {
 fn cc(b: *Build, name: []const u8, opts: Options) SysCmd {
     const cmd = Run.create(b, "cc");
     cmd.addArgs(&.{ opts.cc_override orelse "cc", "-fno-lto" });
+    cmd.addArg("-o");
+    const out = cmd.addOutputFileArg(name);
+    cmd.addPrefixedDirectorySourceArg("-B", opts.ld.dirname());
+    return .{ .cmd = cmd, .out = out };
+}
+
+fn cpp(b: *Build, name: []const u8, opts: Options) SysCmd {
+    const cmd = Run.create(b, "c++");
+    cmd.addArgs(&.{ "c++", "-fno-lto" });
     cmd.addArg("-o");
     const out = cmd.addOutputFileArg(name);
     cmd.addPrefixedDirectorySourceArg("-B", opts.ld.dirname());

@@ -10,6 +10,7 @@ pub fn addMachOTests(b: *Build, options: common.Options) *Step {
         .macos_sdk = undefined,
         .ios_sdk = null,
         .cc_override = options.cc_override,
+        .is_nix = options.is_nix,
     };
     opts.macos_sdk = std.zig.system.darwin.getSdk(b.allocator, builtin.target) orelse @panic("no macOS SDK found");
     opts.ios_sdk = blk: {
@@ -280,7 +281,7 @@ fn testBuildVersionIOS(b: *Build, opts: Options) *Step {
 fn testDeadStrip(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-dead-strip", "");
 
-    const obj = cc(b, "a.o", opts);
+    const obj = cpp(b, "a.o", opts);
     obj.addCppSource(
         \\#include <stdio.h>
         \\int two() { return 2; }
@@ -300,7 +301,7 @@ fn testDeadStrip(b: *Build, opts: Options) *Step {
     obj.addArg("-c");
 
     {
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj.getFile());
 
         const check = exe.check();
@@ -328,7 +329,7 @@ fn testDeadStrip(b: *Build, opts: Options) *Step {
     }
 
     {
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj.getFile());
         exe.addArg("-Wl,-dead_strip");
 
@@ -646,8 +647,12 @@ fn testDylibVersionTbd(b: *Build, opts: Options) *Step {
         \\    symbols:     [ _foo ]
     );
 
+    const main_o = cc(b, "main.o", opts);
+    main_o.addEmptyMain();
+    main_o.addArg("-c");
+
     const exe = cc(b, "main", opts);
-    exe.addEmptyMain();
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(tbd);
 
     const check = exe.check();
@@ -839,6 +844,11 @@ fn testExportedSymbol(b: *Build, opts: Options) *Step {
 fn testFatArchive(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-fat-archive", "");
 
+    // TODO forcing -arch that is different than the host in Nix will confuse the cc-wrapper
+    // which will append -arch <host> regardless of what we set explicitly. I don't yet have
+    // an idea for this, so just skip the test for now.
+    if (opts.is_nix) return skipTestStep(test_step);
+
     const a_c = "int foo = 42;";
 
     const lib_arm64 = blk: {
@@ -867,8 +877,8 @@ fn testFatArchive(b: *Build, opts: Options) *Step {
     fat_lib.addFileSource(lib_arm64.getFile());
     fat_lib.addFileSource(lib_x64.getFile());
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include<stdio.h>
         \\extern int foo;
         \\int main() {
@@ -876,6 +886,10 @@ fn testFatArchive(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(fat_lib.getFile());
 
     const run = exe.run();
@@ -887,6 +901,11 @@ fn testFatArchive(b: *Build, opts: Options) *Step {
 
 fn testFatDylib(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-fat-dylib", "");
+
+    // TODO forcing -arch that is different than the host in Nix will confuse the cc-wrapper
+    // which will append -arch <host> regardless of what we set explicitly. I don't yet have
+    // an idea for this, so just skip the test for now.
+    if (opts.is_nix) return skipTestStep(test_step);
 
     const a_c = "int foo = 42;";
 
@@ -902,8 +921,8 @@ fn testFatDylib(b: *Build, opts: Options) *Step {
     fat_lib.addFileSource(dylib_arm64.getFile());
     fat_lib.addFileSource(dylib_x64.getFile());
 
-    const exe = cc(b, "main", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include<stdio.h>
         \\extern int foo;
         \\int main() {
@@ -911,6 +930,10 @@ fn testFatDylib(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "main", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(fat_lib.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", fat_lib.getDir());
 
@@ -924,12 +947,17 @@ fn testFatDylib(b: *Build, opts: Options) *Step {
 fn testFinalOutput(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-final-output", "");
 
+    // TODO forcing -arch that is different than the host in Nix will confuse the cc-wrapper
+    // which will append -arch <host> regardless of what we set explicitly. I don't yet have
+    // an idea for this, so just skip the test for now.
+    if (opts.is_nix) return skipTestStep(test_step);
+
     const dylib = cc(b, "liba.dylib", opts);
     dylib.addCSource("int foo = 42;");
     dylib.addArgs(&.{ "-shared", "-arch", "arm64", "-arch", "x86_64" });
 
-    const exe = cc(b, "main", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include<stdio.h>
         \\extern int foo;
         \\int main() {
@@ -937,6 +965,10 @@ fn testFinalOutput(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "main", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(dylib.getFile());
 
     const run = exe.run();
@@ -2521,6 +2553,10 @@ fn testObjcStubs2(b: *Build, opts: Options) *Step {
 fn testObjCpp(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-obj-cpp", "");
 
+    // TODO it seems that Nix's cc-wrapper doesn't detect `-xobjective-c++` as isCxx.
+    // This seems like a bug that should be filed upstream.
+    if (opts.is_nix) return skipTestStep(test_step);
+
     const includes = WriteFile.create(b);
     _ = includes.add("Foo.h",
         \\#import <Foundation/Foundation.h>
@@ -2543,8 +2579,8 @@ fn testObjCpp(b: *Build, opts: Options) *Step {
     foo_o.addPrefixedDirectorySource("-I", includes.getDirectory());
     foo_o.addArg("-c");
 
-    const exe = cc(b, "a.out", opts);
-    exe.addObjCppSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addObjCppSource(
         \\#import "Foo.h"
         \\#import <assert.h>
         \\#include <iostream>
@@ -2559,7 +2595,11 @@ fn testObjCpp(b: *Build, opts: Options) *Step {
         \\  }
         \\}
     );
-    exe.addPrefixedDirectorySource("-I", includes.getDirectory());
+    main_o.addPrefixedDirectorySource("-I", includes.getDirectory());
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(foo_o.getFile());
     exe.addArgs(&.{ "-framework", "Foundation", "-lc++" });
 
@@ -2625,14 +2665,18 @@ fn testReexportsZig(b: *Build, opts: Options) *Step {
     const lib = ar(b, "liba.a");
     lib.addFileSource(obj.getFile());
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\extern int foo();
         \\extern int bar();
         \\int main() {
         \\  return bar() - foo();
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "main", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(lib.getFile());
 
     const run = exe.run();
@@ -2644,19 +2688,26 @@ fn testReexportsZig(b: *Build, opts: Options) *Step {
 fn testRelocatable(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-relocatable", "");
 
-    const a_c =
+    const a_o = cpp(b, "a.o", opts);
+    a_o.addCppSource(
         \\#include <stdexcept>
         \\int try_me() {
         \\  throw std::runtime_error("Oh no!");
         \\}
-    ;
-    const b_c =
+    );
+    a_o.addArg("-c");
+
+    const b_o = cpp(b, "b.o", opts);
+    b_o.addCppSource(
         \\extern int try_me();
         \\int try_again() {
         \\  return try_me();
         \\}
-    ;
-    const main_c =
+    );
+    b_o.addArg("-c");
+
+    const main_o = cpp(b, "main.o", opts);
+    main_o.addCppSource(
         \\#include <iostream>
         \\#include <stdexcept>
         \\extern int try_again();
@@ -2668,27 +2719,20 @@ fn testRelocatable(b: *Build, opts: Options) *Step {
         \\  }
         \\  return 0;
         \\}
-    ;
+    );
+    main_o.addArg("-c");
+
     const exp_stdout = "exception=Oh no!";
 
     {
-        const a_o = cc(b, "a.o", opts);
-        a_o.addCppSource(a_c);
-        a_o.addArg("-c");
-
-        const b_o = cc(b, "b.o", opts);
-        b_o.addCppSource(b_c);
-        b_o.addArg("-c");
-
         const c_o = ld(b, "c.o", opts);
         c_o.addFileSource(a_o.getFile());
         c_o.addFileSource(b_o.getFile());
         c_o.addArg("-r");
 
-        const exe = cc(b, "a.out", opts);
-        exe.addCppSource(main_c);
+        const exe = cpp(b, "a.out", opts);
+        exe.addFileSource(main_o.getFile());
         exe.addFileSource(c_o.getFile());
-        exe.addArg("-lc++");
 
         const run = exe.run();
         run.expectStdOutEqual(exp_stdout);
@@ -2696,27 +2740,14 @@ fn testRelocatable(b: *Build, opts: Options) *Step {
     }
 
     {
-        const a_o = cc(b, "a.o", opts);
-        a_o.addCppSource(a_c);
-        a_o.addArg("-c");
-
-        const b_o = cc(b, "b.o", opts);
-        b_o.addCppSource(b_c);
-        b_o.addArg("-c");
-
-        const main_o = cc(b, "main.o", opts);
-        main_o.addCppSource(main_c);
-        main_o.addArg("-c");
-
         const c_o = ld(b, "c.o", opts);
         c_o.addFileSource(a_o.getFile());
         c_o.addFileSource(b_o.getFile());
         c_o.addFileSource(main_o.getFile());
         c_o.addArg("-r");
 
-        const exe = cc(b, "a.out", opts);
+        const exe = cpp(b, "a.out", opts);
         exe.addFileSource(c_o.getFile());
-        exe.addArg("-lc++");
 
         const run = exe.run();
         run.expectStdOutEqual(exp_stdout);
@@ -2869,13 +2900,13 @@ fn testSearchStrategy(b: *Build, opts: Options) *Step {
 fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-section-boundary-symbols", "");
 
-    const obj1 = cc(b, "a.o", opts);
+    const obj1 = cpp(b, "a.o", opts);
     obj1.addCppSource(
         \\constexpr const char* MESSAGE __attribute__((used, section("__DATA_CONST,__message_ptr"))) = "codebase";
     );
     obj1.addArgs(&.{ "-std=c++17", "-c" });
 
-    const main_o = cc(b, "main.o", opts);
+    const main_o = cpp(b, "main.o", opts);
     main_o.addCSource(
         \\#include <stdio.h>
         \\const char* interop();
@@ -2887,7 +2918,7 @@ fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
     main_o.addArg("-c");
 
     {
-        const obj2 = cc(b, "b.o", opts);
+        const obj2 = cpp(b, "b.o", opts);
         obj2.addCppSource(
             \\extern const char* message_pointer __asm("section$start$__DATA_CONST$__message_ptr");
             \\extern "C" const char* interop() {
@@ -2896,7 +2927,7 @@ fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
         );
         obj2.addArgs(&.{ "-std=c++17", "-c" });
 
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj1.getFile());
         exe.addFileSource(obj2.getFile());
         exe.addFileSource(main_o.getFile());
@@ -2912,7 +2943,7 @@ fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
     }
 
     {
-        const obj2 = cc(b, "b.o", opts);
+        const obj2 = cpp(b, "b.o", opts);
         obj2.addCppSource(
             \\extern const char* message_pointer __asm("section$start$__DATA_CONST$__not_present");
             \\extern "C" const char* interop() {
@@ -2921,7 +2952,7 @@ fn testSectionBoundarySymbols(b: *Build, opts: Options) *Step {
         );
         obj2.addArgs(&.{ "-std=c++17", "-c" });
 
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj1.getFile());
         exe.addFileSource(obj2.getFile());
         exe.addFileSource(main_o.getFile());
@@ -2979,13 +3010,13 @@ fn testSectionBoundarySymbols2(b: *Build, opts: Options) *Step {
 fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-segment-boundary-symbols", "");
 
-    const obj1 = cc(b, "a.o", opts);
+    const obj1 = cpp(b, "a.o", opts);
     obj1.addCppSource(
         \\constexpr const char* MESSAGE __attribute__((used, section("__DATA_CONST_1,__message_ptr"))) = "codebase";
     );
     obj1.addArgs(&.{ "-std=c++17", "-c" });
 
-    const main_o = cc(b, "main.o", opts);
+    const main_o = cpp(b, "main.o", opts);
     main_o.addCSource(
         \\#include <stdio.h>
         \\const char* interop();
@@ -2997,7 +3028,7 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
     main_o.addArg("-c");
 
     {
-        const obj2 = cc(b, "b.o", opts);
+        const obj2 = cpp(b, "b.o", opts);
         obj2.addCppSource(
             \\extern const char* message_pointer __asm("segment$start$__DATA_CONST_1");
             \\extern "C" const char* interop() {
@@ -3006,7 +3037,7 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
         );
         obj2.addArgs(&.{ "-std=c++17", "-c" });
 
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj1.getFile());
         exe.addFileSource(obj2.getFile());
         exe.addFileSource(main_o.getFile());
@@ -3022,7 +3053,7 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
     }
 
     {
-        const obj2 = cc(b, "b.o", opts);
+        const obj2 = cpp(b, "b.o", opts);
         obj2.addCppSource(
             \\extern const char* message_pointer __asm("segment$start$__DATA_1");
             \\extern "C" const char* interop() {
@@ -3031,7 +3062,7 @@ fn testSegmentBoundarySymbols(b: *Build, opts: Options) *Step {
         );
         obj2.addArgs(&.{ "-std=c++17", "-c" });
 
-        const exe = cc(b, "main", opts);
+        const exe = cpp(b, "main", opts);
         exe.addFileSource(obj1.getFile());
         exe.addFileSource(obj2.getFile());
         exe.addFileSource(main_o.getFile());
@@ -3117,27 +3148,31 @@ fn testSymbolStabs(b: *Build, opts: Options) *Step {
         else => unreachable,
     }
 
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
+        \\#include <stdio.h>
+        \\int get_x();
+        \\void incr_x();
+        \\int bar();
+        \\void print_x() {
+        \\  printf("x=%d\n", get_x());
+        \\}
+        \\void print_bar() {
+        \\  printf("bar=%d\n", bar());
+        \\}
+        \\int main() {
+        \\  print_x();
+        \\  incr_x();
+        \\  print_x();
+        \\  print_bar();
+        \\  return 0;
+        \\}
+    );
+    main_o.addArg("-c");
+
     {
         const exe = cc(b, "a.out", opts);
-        exe.addCSource(
-            \\#include <stdio.h>
-            \\int get_x();
-            \\void incr_x();
-            \\int bar();
-            \\void print_x() {
-            \\  printf("x=%d\n", get_x());
-            \\}
-            \\void print_bar() {
-            \\  printf("bar=%d\n", bar());
-            \\}
-            \\int main() {
-            \\  print_x();
-            \\  incr_x();
-            \\  print_x();
-            \\  print_bar();
-            \\  return 0;
-            \\}
-        );
+        exe.addFileSource(main_o.getFile());
         exe.addFileSource(a_o.getFile());
         exe.addFileSource(b_o.getFile());
         exe.addArg("-g");
@@ -3165,25 +3200,7 @@ fn testSymbolStabs(b: *Build, opts: Options) *Step {
 
     {
         const exe = cc(b, "a.out", opts);
-        exe.addCSource(
-            \\#include <stdio.h>
-            \\int get_x();
-            \\void incr_x();
-            \\int bar();
-            \\void print_x() {
-            \\  printf("x=%d\n", get_x());
-            \\}
-            \\void print_bar() {
-            \\  printf("bar=%d\n", bar());
-            \\}
-            \\int main() {
-            \\  print_x();
-            \\  incr_x();
-            \\  print_x();
-            \\  print_bar();
-            \\  return 0;
-            \\}
-        );
+        exe.addFileSource(main_o.getFile());
         exe.addFileSource(a_o.getFile());
         exe.addFileSource(b_o.getFile());
         exe.addArgs(&.{ "-g", "-Wl,-dead_strip" });
@@ -3274,14 +3291,18 @@ fn testTbdv3(b: *Build, opts: Options) *Step {
         \\    symbols:         [ _getFoo ]
     );
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\int getFoo();
         \\int main() {
         \\  return getFoo() - 42;
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(tbd);
     exe.addPrefixedDirectorySource("-Wl,-rpath,", dylib.getDir());
 
@@ -3551,7 +3572,7 @@ fn testTlsPointers(b: *Build, opts: Options) *Step {
         \\};
     );
 
-    const bar_o = cc(b, "bar.o", opts);
+    const bar_o = cpp(b, "bar.o", opts);
     bar_o.addCppSource(
         \\#include "foo.h"
         \\int bar() {
@@ -3562,7 +3583,7 @@ fn testTlsPointers(b: *Build, opts: Options) *Step {
     bar_o.addArgs(&.{ "-c", "-std=c++17" });
     bar_o.addPrefixedDirectorySource("-I", includes.getDirectory());
 
-    const baz_o = cc(b, "baz.o", opts);
+    const baz_o = cpp(b, "baz.o", opts);
     baz_o.addCppSource(
         \\#include "foo.h"
         \\int baz() {
@@ -3573,7 +3594,7 @@ fn testTlsPointers(b: *Build, opts: Options) *Step {
     baz_o.addArgs(&.{ "-c", "-std=c++17" });
     baz_o.addPrefixedDirectorySource("-I", includes.getDirectory());
 
-    const main_o = cc(b, "main.o", opts);
+    const main_o = cpp(b, "main.o", opts);
     main_o.addCppSource(
         \\extern int bar();
         \\extern int baz();
@@ -3586,11 +3607,10 @@ fn testTlsPointers(b: *Build, opts: Options) *Step {
     main_o.addArgs(&.{ "-c", "-std=c++17" });
     main_o.addPrefixedDirectorySource("-I", includes.getDirectory());
 
-    const exe = cc(b, "a.out", opts);
+    const exe = cpp(b, "a.out", opts);
     exe.addFileSource(bar_o.getFile());
     exe.addFileSource(baz_o.getFile());
     exe.addFileSource(main_o.getFile());
-    exe.addArg("-lc++");
 
     const run = exe.run();
     run.expectExitCode(0);
@@ -3609,9 +3629,13 @@ fn testUndefinedFlag(b: *Build, opts: Options) *Step {
     const lib = ar(b, "liba.a");
     lib.addFileSource(obj.getFile());
 
+    const main_o = cc(b, "main.o", opts);
+    main_o.addEmptyMain();
+    main_o.addArg("-c");
+
     {
         const exe = cc(b, "a.out", opts);
-        exe.addEmptyMain();
+        exe.addFileSource(main_o.getFile());
         exe.addArgs(&.{ "-Wl,-u,_foo", "-la" });
         exe.addPrefixedDirectorySource("-L", lib.getDir());
 
@@ -3626,7 +3650,7 @@ fn testUndefinedFlag(b: *Build, opts: Options) *Step {
 
     {
         const exe = cc(b, "a.out", opts);
-        exe.addEmptyMain();
+        exe.addFileSource(main_o.getFile());
         exe.addArgs(&.{ "-Wl,-u,_foo", "-la", "-Wl,-dead_strip" });
         exe.addPrefixedDirectorySource("-L", lib.getDir());
 
@@ -3641,7 +3665,7 @@ fn testUndefinedFlag(b: *Build, opts: Options) *Step {
 
     {
         const exe = cc(b, "a.out", opts);
-        exe.addEmptyMain();
+        exe.addFileSource(main_o.getFile());
         exe.addFileSource(obj.getFile());
 
         const run = exe.run();
@@ -3655,7 +3679,7 @@ fn testUndefinedFlag(b: *Build, opts: Options) *Step {
 
     {
         const exe = cc(b, "a.out", opts);
-        exe.addEmptyMain();
+        exe.addFileSource(main_o.getFile());
         exe.addFileSource(obj.getFile());
         exe.addArg("-Wl,-dead_strip");
 
@@ -3800,23 +3824,22 @@ fn testUnwindInfo(b: *Build, opts: Options) *Step {
     ;
 
     const flags: []const []const u8 = &.{ "-std=c++17", "-c" };
-    const obj = cc(b, "main.o", opts);
+    const obj = cpp(b, "main.o", opts);
     obj.addCppSource(main_c);
     obj.addPrefixedDirectorySource("-I", all_h.dirname());
     obj.addArgs(flags);
 
-    const obj1 = cc(b, "simple_string.o", opts);
+    const obj1 = cpp(b, "simple_string.o", opts);
     obj1.addCppSource(simple_string_c);
     obj1.addPrefixedDirectorySource("-I", all_h.dirname());
     obj1.addArgs(flags);
 
-    const obj2 = cc(b, "simple_string_owner.o", opts);
+    const obj2 = cpp(b, "simple_string_owner.o", opts);
     obj2.addCppSource(simple_string_owner_c);
     obj2.addPrefixedDirectorySource("-I", all_h.dirname());
     obj2.addArgs(flags);
 
-    const exe = ld(b, "main", opts);
-    exe.addArgs(&.{ "-dynamic", "-syslibroot", opts.macos_sdk, "-lc++", "-lSystem", "-lc" });
+    const exe = cpp(b, "main", opts);
     exe.addFileSource(obj.getFile());
     exe.addFileSource(obj1.getFile());
     exe.addFileSource(obj2.getFile());
@@ -3880,8 +3903,8 @@ fn testUnwindInfoNoSubsectionsArm64(b: *Build, opts: Options) *Step {
     );
     a_o.addArg("-c");
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\int foo();
         \\int main() {
@@ -3889,6 +3912,10 @@ fn testUnwindInfoNoSubsectionsArm64(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(a_o.getFile());
 
     const run = exe.run();
@@ -3937,8 +3964,8 @@ fn testUnwindInfoNoSubsectionsX64(b: *Build, opts: Options) *Step {
     );
     a_o.addArg("-c");
 
-    const exe = cc(b, "a.out", opts);
-    exe.addCSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addCSource(
         \\#include <stdio.h>
         \\int foo();
         \\int main() {
@@ -3946,6 +3973,10 @@ fn testUnwindInfoNoSubsectionsX64(b: *Build, opts: Options) *Step {
         \\  return 0;
         \\}
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(a_o.getFile());
 
     const run = exe.run();
@@ -3997,8 +4028,8 @@ fn testWeakBind(b: *Build, opts: Options) *Step {
         test_step.dependOn(&check.step);
     }
 
-    const exe = cc(b, "a.out", opts);
-    exe.addAsmSource(
+    const main_o = cc(b, "main.o", opts);
+    main_o.addAsmSource(
         \\.globl _main, _weak_external, _weak_external_for_gotpcrel, _weak_external_fn
         \\.weak_definition _weak_external, _weak_external_for_gotpcrel, _weak_external_fn, _weak_internal, _weak_internal_for_gotpcrel, _weak_internal_fn
         \\
@@ -4055,6 +4086,10 @@ fn testWeakBind(b: *Build, opts: Options) *Step {
         \\  .quad 0
         \\  .quad _weak_internal_tlv$tlv$init
     );
+    main_o.addArg("-c");
+
+    const exe = cc(b, "a.out", opts);
+    exe.addFileSource(main_o.getFile());
     exe.addFileSource(lib.getFile());
     exe.addPrefixedDirectorySource("-Wl,-rpath,", lib.getDir());
 
@@ -4186,6 +4221,11 @@ fn testWeakRef(b: *Build, opts: Options) *Step {
 fn testWeakRef2(b: *Build, opts: Options) *Step {
     const test_step = b.step("test-macho-weak-ref2", "");
 
+    // TODO forcing -arch that is different than the host in Nix will confuse the cc-wrapper
+    // which will append -arch <host> regardless of what we set explicitly. I don't yet have
+    // an idea for this, so just skip the test for now.
+    if (opts.is_nix) return skipTestStep(test_step);
+
     const exe = cc(b, "a.out", opts);
     exe.addCSource(
         \\#include <stdio.h>
@@ -4211,11 +4251,21 @@ const Options = struct {
     macos_sdk: []const u8,
     ios_sdk: ?[]const u8,
     cc_override: ?[]const u8,
+    is_nix: bool,
 };
 
 fn cc(b: *Build, name: []const u8, opts: Options) SysCmd {
     const cmd = Run.create(b, "cc");
-    cmd.addArgs(&.{ opts.cc_override orelse "cc", "-fno-lto" });
+    cmd.addArgs(&.{ opts.cc_override orelse "cc", "-fno-lto", "-O0" });
+    cmd.addArg("-o");
+    const out = cmd.addOutputFileArg(name);
+    cmd.addPrefixedDirectorySourceArg("-B", opts.ld.dirname());
+    return .{ .cmd = cmd, .out = out };
+}
+
+fn cpp(b: *Build, name: []const u8, opts: Options) SysCmd {
+    const cmd = Run.create(b, "c++");
+    cmd.addArgs(&.{ "c++", "-fno-lto", "-O0" });
     cmd.addArg("-o");
     const out = cmd.addOutputFileArg(name);
     cmd.addPrefixedDirectorySourceArg("-B", opts.ld.dirname());
