@@ -1,12 +1,15 @@
-# emerald
+# bold - the *bold* linker
 
-`emerald` is a drop-in replacement for your system linker `ld` written in Zig. Currently, the main development effort is focused on the MachO
-driver. MachO driver is on par with the LLVM lld linker, faster than the legacy Apple ld linker, but slower than the rewritten Apple ld linker.
-Some benchmark results between the linkers when linking stage3-zig compiler which includes linking LLVM statically:
+> Bold used to be emerald, but due to time constraints and other commitments I am unable to develop and maintain the other drivers.
+> Emerald now lives in another repo -> [kubkon/emerald-old](https://github.com/kubkon/emerald-old).
+
+`bold` is a drop-in replacement for Apple system linker `ld`, written fully in Zig. It is on par with the LLVM lld linker, 
+faster than the legacy Apple ld linker, but slower than the rewritten Apple ld linker. Some benchmark results between the linkers 
+when linking stage3-zig compiler which includes linking LLVM statically:
 
 ```sh
-$ hyperfine ./emerald.sh ./ld.sh ./ld_legacy.sh ./lld.sh
-Benchmark 1: ./emerald.sh
+$ hyperfine ./bold.sh ./ld.sh ./ld_legacy.sh ./lld.sh
+Benchmark 1: ./bold.sh
   Time (mean ± σ):      1.088 s ±  0.018 s    [User: 3.174 s, System: 1.004 s]
   Range (min … max):    1.039 s …  1.104 s    10 runs
 
@@ -24,18 +27,18 @@ Benchmark 4: ./lld.sh
 
 Summary
   ./ld.sh ran
-    2.21 ± 0.10 times faster than ./emerald.sh
+    2.21 ± 0.10 times faster than ./bold.sh
     2.36 ± 0.10 times faster than ./lld.sh
     4.33 ± 0.17 times faster than ./ld_legacy.sh
 ```
 
 In the results
-* `emerald.sh` calls `emerald` with all the required inputs and flags
+* `bold.sh` calls `bold` with all the required inputs and flags
 * `ld.sh` calls the rewritten Apple linker
 * `ld_legacy.sh` calls `ld -ld_classic` the legacy Apple linker
 * `lld.sh` calls LLVM lld linker
 
-The tl;dr is `emerald` is currently directly competing with LLVM lld but behind the Apple ld linker.
+tl;dr `bold` is currently directly competing with LLVM lld but behind the Apple ld linker.
 
 ## Quick start guide
 
@@ -47,7 +50,6 @@ You will need Zig 0.13.0 in your path. You can download it from [here](https://z
 $ zig build -Doptimize=ReleaseFast
 ```
 
-This will create the `ld.emerald` (Elf), `ld64.emerald` (MachO), `emerald-link.exe` (Coff) and `wasm-emerald` (Wasm) binaries in `zig-out/bin/`.
 You can then pass it to your system C/C++ compiler with `-B` or `-fuse-ld` flag (note that the latter is supported mainly/only by clang):
 
 ```
@@ -61,10 +63,10 @@ int main() {
 EOF
 
 # Using clang
-$ clang hello.c -fuse-ld=ld64.emerald
+$ clang hello.c -fuse-ld=bold
 
 # Using gcc
-$ gcc hello.c -B/path/to/ld64.emerald
+$ gcc hello.c -B/path/to/bold
 ```
 
 ### Testing
@@ -74,17 +76,6 @@ If you'd like to run unit and end-to-end tests, run the tests like you'd normall
 ```
 $ zig build test
 ```
-
-## Supported backends
-
-- [x] Mach-O (x86_64)
-- [x] Mach-O (aarch64)
-- [x] ELF (x86_64)
-- [x] ELF (aarch64)
-- [ ] ELF (riscv64)
-- [ ] COFF (x86_64)
-- [ ] COFF (aarch64)
-- [x] Wasm (static)
 
 ## Contributing
 

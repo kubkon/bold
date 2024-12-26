@@ -6,7 +6,7 @@ const tracy = @import("tracy.zig");
 
 const Allocator = mem.Allocator;
 const ThreadPool = std.Thread.Pool;
-const Ld = @import("Ld.zig");
+const MachO = @import("MachO.zig");
 
 var tracy_alloc = tracy.tracyAllocator(std.heap.c_allocator);
 
@@ -14,15 +14,6 @@ const gpa = if (tracy.enable_allocation)
     tracy_alloc.allocator()
 else
     std.heap.c_allocator;
-
-const usage =
-    \\emerald is a generic linker driver.
-    \\Call
-    \\  ELF: ld.emerald
-    \\  MachO: ld64.emerald
-    \\  COFF: emerald-link.exe
-    \\  Wasm: wasm-emerald
-;
 
 var log_scopes: std.ArrayList([]const u8) = std.ArrayList([]const u8).init(gpa);
 
@@ -80,26 +71,7 @@ pub fn main() !void {
     const arena = arena_allocator.allocator();
 
     const all_args = try std.process.argsAlloc(arena);
-    const cmd = std.fs.path.basename(all_args[0]);
-    const tag: Ld.Tag = blk: {
-        if (mem.eql(u8, cmd, "ld.emerald")) {
-            break :blk .elf;
-        } else if (mem.eql(u8, cmd, "ld64.emerald")) {
-            break :blk .macho;
-        } else if (mem.eql(u8, cmd, "emerald-link.exe")) {
-            break :blk .coff;
-        } else if (mem.eql(u8, cmd, "wasm-emerald")) {
-            break :blk .wasm;
-        } else break :blk switch (builtin.target.ofmt) {
-            .elf => .elf,
-            .macho => .macho,
-            .coff => .coff,
-            .wasm => .wasm,
-            else => |other| fatal("unsupported file format '{s}'", .{@tagName(other)}),
-        };
-    };
-
-    const opts = try Ld.Options.parse(arena, tag, all_args[1..], .{
+    const opts = try MachO.Options.parse(arena, all_args[1..], .{
         .print = print,
         .fatal = fatal,
         .log_scopes = &log_scopes,
@@ -109,7 +81,7 @@ pub fn main() !void {
     try thread_pool.init(.{ .allocator = gpa });
     defer thread_pool.deinit();
 
-    const ld = try Ld.openPath(gpa, tag, opts, &thread_pool);
+    var ld = try MachO.openPath(gpa, opts, &thread_pool);
     defer ld.deinit();
     const res = ld.flush();
     ld.reportWarnings();

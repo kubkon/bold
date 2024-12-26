@@ -1,5 +1,5 @@
 {
-  description = "Emerald linker";
+  description = "Bold linker";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
@@ -47,9 +47,9 @@
           hash = "sha256-DN1ExvQ5wcIUyhMAfiakFbZkDsx+5l8VMtYGvSdboPA=";
         };
 
-        packages.default = packages.emerald;
-        packages.emerald = pkgs.stdenv.mkDerivation {
-          name = "emerald";
+        packages.default = packages.bold;
+        packages.bold = pkgs.stdenv.mkDerivation {
+          name = "bold";
           version = "master";
           src = ./.;
           nativeBuildInputs = commonInputs;
