@@ -18,7 +18,6 @@ pub fn build(b: *std.Build) void {
         break :blk null;
     };
     const use_llvm = b.option(bool, "use-llvm", "Whether to use LLVM") orelse true;
-    const use_lld = if (builtin.os.tag == .macos) false else use_llvm;
     const sanitize_thread = b.option(bool, "sanitize-thread", "Enable thread-sanitization") orelse false;
     const single_threaded = b.option(bool, "single-threaded", "Force single-threaded") orelse false;
 
@@ -32,12 +31,11 @@ pub fn build(b: *std.Build) void {
     });
 
     const exe = b.addExecutable(.{
-        .name = "emerald",
+        .name = "bold",
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = mode,
         .use_llvm = use_llvm,
-        .use_lld = use_lld,
         .sanitize_thread = sanitize_thread,
         .single_threaded = single_threaded,
     });
@@ -73,15 +71,7 @@ pub fn build(b: *std.Build) void {
             exe.linkSystemLibrary("ws2_32");
         }
     }
-    const install = b.addInstallArtifact(exe, .{});
-    const symlinks = addSymlinks(b, install, &[_][]const u8{
-        "ld",
-        "ld.emerald",
-        "ld64.emerald",
-        "emerald-link.exe",
-        "wasm-emerald",
-    });
-    symlinks.step.dependOn(&install.step);
+    b.installArtifact(exe);
 
     const system_compiler = b.option(tests.SystemCompiler, "system-compiler", "System compiler we are utilizing for tests: gcc, clang");
     const has_static = b.option(bool, "has-static", "Whether the system compiler supports '-static' flag") orelse false;
@@ -91,11 +81,10 @@ pub fn build(b: *std.Build) void {
     const is_nix = b.option(bool, "nix", "Whether the host is Nix-based") orelse false;
 
     const unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/Ld.zig"),
+        .root_source_file = b.path("src/MachO.zig"),
         .target = target,
         .optimize = mode,
         .use_llvm = use_llvm,
-        .use_lld = use_lld,
         .sanitize_thread = sanitize_thread,
         .single_threaded = single_threaded,
     });
@@ -118,59 +107,3 @@ pub fn build(b: *std.Build) void {
         .is_nix = is_nix,
     }));
 }
-
-fn addSymlinks(
-    builder: *std.Build,
-    install: *std.Build.Step.InstallArtifact,
-    names: []const []const u8,
-) *CreateSymlinksStep {
-    const step = CreateSymlinksStep.create(builder, install, names);
-    builder.getInstallStep().dependOn(&step.step);
-    return step;
-}
-
-const CreateSymlinksStep = struct {
-    pub const base_id = .custom;
-
-    step: std.Build.Step,
-    builder: *std.Build,
-    install: *std.Build.Step.InstallArtifact,
-    targets: []const []const u8,
-
-    pub fn create(
-        builder: *std.Build,
-        install: *std.Build.Step.InstallArtifact,
-        targets: []const []const u8,
-    ) *CreateSymlinksStep {
-        const self = builder.allocator.create(CreateSymlinksStep) catch unreachable;
-        self.* = CreateSymlinksStep{
-            .builder = builder,
-            .step = std.Build.Step.init(.{
-                .id = .custom,
-                .name = builder.fmt("symlinks to {s}", .{install.artifact.name}),
-                .owner = builder,
-                .makeFn = make,
-            }),
-            .install = install,
-            .targets = builder.dupeStrings(targets),
-        };
-        return self;
-    }
-
-    fn make(step: *std.Build.Step, prog_node: std.Progress.Node) anyerror!void {
-        const self: *CreateSymlinksStep = @fieldParentPtr("step", step);
-        const install_path = self.install.artifact.getEmittedBin().getPath(self.builder);
-        const rel_source = fs.path.basename(install_path);
-
-        var node = prog_node.start("creating symlinks", self.targets.len);
-        defer node.end();
-        for (self.targets, 0..) |target, i| {
-            const target_path = self.builder.getInstallPath(.bin, target);
-            fs.atomicSymLink(self.builder.allocator, rel_source, target_path) catch |err| {
-                log.err("Unable to symlink {s} -> {s}", .{ rel_source, target_path });
-                return err;
-            };
-            node.setCompletedItems(i + 1);
-        }
-    }
-};

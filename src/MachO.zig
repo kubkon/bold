@@ -1,4 +1,10 @@
-base: Ld,
+allocator: Allocator,
+file: fs.File,
+thread_pool: *ThreadPool,
+warnings: std.ArrayListUnmanaged(ErrorMsg) = .{},
+warnings_mutex: std.Thread.Mutex = .{},
+errors: std.ArrayListUnmanaged(ErrorMsg) = .{},
+errors_mutex: std.Thread.Mutex = .{},
 options: Options,
 
 dyld_info_cmd: macho.dyld_info_command = .{},
@@ -71,7 +77,7 @@ has_errors: AtomicBool = AtomicBool.init(false),
 /// was specified. See Object.stripLocalsRelocatable for usage.
 strip_locals_counter: std.atomic.Value(u32) = std.atomic.Value(u32).init(0),
 
-pub fn openPath(allocator: Allocator, options: Options, thread_pool: *ThreadPool) !*MachO {
+pub fn openPath(allocator: Allocator, options: Options, thread_pool: *ThreadPool) !MachO {
     const file = try options.emit.directory.createFile(options.emit.sub_path, .{
         .truncate = true,
         .read = true,
@@ -79,30 +85,22 @@ pub fn openPath(allocator: Allocator, options: Options, thread_pool: *ThreadPool
     });
     errdefer file.close();
 
-    const self = try createEmpty(allocator, options, thread_pool);
-    errdefer self.base.destroy();
-
-    self.base.file = file;
-
-    return self;
-}
-
-fn createEmpty(gpa: Allocator, options: Options, thread_pool: *ThreadPool) !*MachO {
-    const self = try gpa.create(MachO);
-    self.* = .{
-        .base = .{
-            .tag = .macho,
-            .allocator = gpa,
-            .file = undefined,
-            .thread_pool = thread_pool,
-        },
+    return .{
+        .allocator = allocator,
+        .file = file,
+        .thread_pool = thread_pool,
         .options = options,
     };
-    return self;
 }
 
 pub fn deinit(self: *MachO) void {
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
+
+    self.file.close();
+    assert(self.warnings.items.len == 0);
+    self.warnings.deinit(gpa);
+    assert(self.errors.items.len == 0);
+    self.errors.deinit(gpa);
 
     for (self.file_handles.items) |file| {
         file.close();
@@ -164,7 +162,7 @@ pub fn flush(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
 
     // Append empty string to string tables
     try self.strtab.append(gpa, 0);
@@ -185,7 +183,7 @@ pub fn flush(self: *MachO) !void {
             try lib_dirs.append(search_dir);
             log.debug("  {s}", .{dir});
         } else {
-            self.base.warn("{s}: library search directory not found", .{dir});
+            self.warn("{s}: library search directory not found", .{dir});
         }
     }
 
@@ -196,7 +194,7 @@ pub fn flush(self: *MachO) !void {
             try framework_dirs.append(search_dir);
             log.debug("  {s}", .{dir});
         } else {
-            self.base.warn("{s}: framework search directory not found", .{dir});
+            self.warn("{s}: framework search directory not found", .{dir});
         }
     }
 
@@ -243,7 +241,7 @@ pub fn flush(self: *MachO) !void {
     for (resolved_objects.items) |obj| {
         self.classifyInputFile(obj) catch |err| switch (err) {
             else => |e| {
-                self.base.fatal("{s}: unexpected error occurred while parsing input file: {s}", .{
+                self.fatal("{s}: unexpected error occurred while parsing input file: {s}", .{
                     obj.path, @errorName(e),
                 });
                 return e;
@@ -457,7 +455,7 @@ fn resolvePaths(
                     var buffer: [fs.max_path_bytes]u8 = undefined;
                     const full_path = std.fs.realpath(obj.path, &buffer) catch |err| switch (err) {
                         error.FileNotFound => {
-                            self.base.fatal("file not found {}", .{obj});
+                            self.fatal("file not found {}", .{obj});
                             has_resolve_error = true;
                             continue;
                         },
@@ -467,7 +465,7 @@ fn resolvePaths(
                 },
                 .lib => {
                     const full_path = (try self.resolveLib(arena, lib_dirs, obj.path)) orelse {
-                        const err = try self.base.addErrorWithNotes(lib_dirs.len);
+                        const err = try self.addErrorWithNotes(lib_dirs.len);
                         defer err.unlock();
                         try err.addMsg("library not found for {}", .{obj});
                         for (lib_dirs) |dir| try err.addNote("tried {s}", .{dir});
@@ -478,7 +476,7 @@ fn resolvePaths(
                 },
                 .framework => {
                     const full_path = (try self.resolveFramework(arena, framework_dirs, obj.path)) orelse {
-                        const err = try self.base.addErrorWithNotes(framework_dirs.len);
+                        const err = try self.addErrorWithNotes(framework_dirs.len);
                         defer err.unlock();
                         try err.addMsg("framework not found for {}", .{obj});
                         for (framework_dirs) |dir| try err.addNote("tried {s}", .{dir});
@@ -508,7 +506,7 @@ fn inferCpuArchAndPlatform(self: *MachO, resolved_objects: []const LinkObject) !
     defer tracy.end();
 
     var has_parse_error = false;
-    var platforms = std.ArrayList(struct { std.Target.Cpu.Arch, ?Options.Platform }).init(self.base.allocator);
+    var platforms = std.ArrayList(struct { std.Target.Cpu.Arch, ?Options.Platform }).init(self.allocator);
     defer platforms.deinit();
     try platforms.ensureUnusedCapacity(resolved_objects.len);
 
@@ -518,7 +516,7 @@ fn inferCpuArchAndPlatform(self: *MachO, resolved_objects: []const LinkObject) !
             switch (err) {
                 error.UnhandledCpuArch => {}, // already reported
                 else => |e| {
-                    self.base.fatal("{s}: unexpected error occurred while parsing input file: {s}", .{
+                    self.fatal("{s}: unexpected error occurred while parsing input file: {s}", .{
                         obj.path, @errorName(e),
                     });
                     return e;
@@ -528,7 +526,7 @@ fn inferCpuArchAndPlatform(self: *MachO, resolved_objects: []const LinkObject) !
     }
     if (has_parse_error) return error.ParseFailed;
     if (platforms.items.len == 0) {
-        self.base.fatal("could not infer CPU architecture", .{});
+        self.fatal("could not infer CPU architecture", .{});
         return error.InferCpuFailed;
     }
 
@@ -539,7 +537,7 @@ fn inferCpuArchAndPlatform(self: *MachO, resolved_objects: []const LinkObject) !
 }
 
 fn inferCpuArchAndPlatformInObject(self: *MachO, obj: LinkObject, platforms: anytype) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
 
     const file = try std.fs.cwd().openFile(obj.path, .{});
     defer file.close();
@@ -551,7 +549,7 @@ fn inferCpuArchAndPlatformInObject(self: *MachO, obj: LinkObject, platforms: any
         macho.CPU_TYPE_ARM64 => .aarch64,
         macho.CPU_TYPE_X86_64 => .x86_64,
         else => {
-            self.base.fatal("{s}: unhandled CPU architecture: {d}", .{
+            self.fatal("{s}: unhandled CPU architecture: {d}", .{
                 obj.path,
                 header.cputype,
             });
@@ -603,9 +601,9 @@ fn classifyInputFile(self: *MachO, obj: LinkObject) !void {
             macho.MH_DYLIB => if (self.options.cpu_arch) |_| {
                 _ = try self.addDylib(obj, fh, offset, true);
             } else {
-                self.base.fatal("{s}: ignoring library as no architecture specified", .{obj.path});
+                self.fatal("{s}: ignoring library as no architecture specified", .{obj.path});
             },
-            else => self.base.fatal("{s}: unsupported input file type: {x}", .{ obj.path, h.filetype }),
+            else => self.fatal("{s}: unsupported input file type: {x}", .{ obj.path, h.filetype }),
         }
         return;
     }
@@ -614,21 +612,21 @@ fn classifyInputFile(self: *MachO, obj: LinkObject) !void {
         if (self.options.cpu_arch) |_| {
             try self.addArchive(obj, fh, fat_arch);
         } else {
-            self.base.fatal("{s}: ignoring library as no architecture specified", .{obj.path});
+            self.fatal("{s}: ignoring library as no architecture specified", .{obj.path});
         }
         return;
     }
     blk: {
         if (self.options.cpu_arch == null) {
-            self.base.fatal("{s}: ignoring library as no architecture specified", .{obj.path});
+            self.fatal("{s}: ignoring library as no architecture specified", .{obj.path});
         } else {
-            const lib_stub = LibStub.loadFromFile(self.base.allocator, file) catch break :blk;
+            const lib_stub = LibStub.loadFromFile(self.allocator, file) catch break :blk;
             _ = try self.addTbd(obj, lib_stub, true);
         }
         return;
     }
 
-    self.base.fatal("unknown filetype for positional argument: '{s}'", .{obj.path});
+    self.fatal("unknown filetype for positional argument: '{s}'", .{obj.path});
 }
 
 fn parseFatFile(self: *MachO, obj: LinkObject, file: std.fs.File) !?fat.Arch {
@@ -640,10 +638,10 @@ fn parseFatFile(self: *MachO, obj: LinkObject, file: std.fs.File) !?fat.Arch {
         for (fat_archs) |arch| {
             if (arch.tag == cpu_arch) break :arch arch;
         }
-        self.base.fatal("{s}: missing arch in universal file: expected {s}", .{ obj.path, @tagName(cpu_arch) });
+        self.fatal("{s}: missing arch in universal file: expected {s}", .{ obj.path, @tagName(cpu_arch) });
         return error.MissingArch;
     } else {
-        const err = try self.base.addErrorWithNotes(1 + fat_archs.len);
+        const err = try self.addErrorWithNotes(1 + fat_archs.len);
         defer err.unlock();
         try err.addMsg("{s}: ignoring universal file as no architecture specified", .{obj.path});
         for (fat_archs) |arch| {
@@ -672,7 +670,7 @@ fn addObject(self: *MachO, obj: LinkObject, handle: File.HandleIndex, offset: u6
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const mtime: u64 = mtime: {
         const file = self.getFileHandle(handle);
         const stat = file.stat() catch break :mtime 0;
@@ -701,10 +699,10 @@ fn parseInputFiles(self: *MachO) !void {
         defer wg.wait();
 
         for (self.objects.items) |index| {
-            self.base.thread_pool.spawnWg(&wg, parseObjectWorker, .{ self, index });
+            self.thread_pool.spawnWg(&wg, parseObjectWorker, .{ self, index });
         }
         for (self.dylibs.items) |index| {
-            self.base.thread_pool.spawnWg(&wg, parseDylibWorker, .{ self, index });
+            self.thread_pool.spawnWg(&wg, parseDylibWorker, .{ self, index });
         }
     }
 
@@ -716,7 +714,7 @@ fn parseObjectWorker(self: *MachO, index: File.Index) void {
     object.parse(self) catch |err| {
         switch (err) {
             error.ParseFailed => {}, // reported
-            else => |e| self.base.fatal("{}: unxexpected error occurred while parsing input file: {s}", .{
+            else => |e| self.fatal("{}: unxexpected error occurred while parsing input file: {s}", .{
                 object.fmtPath(),
                 @errorName(e),
             }),
@@ -729,7 +727,7 @@ fn addArchive(self: *MachO, obj: LinkObject, handle: File.HandleIndex, fat_arch:
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
 
     var archive = Archive{};
     defer archive.deinit(gpa);
@@ -758,7 +756,7 @@ fn addDylib(self: *MachO, obj: LinkObject, handle: File.HandleIndex, offset: u64
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .dylib = .{
         .offset = offset,
@@ -780,7 +778,7 @@ fn addTbd(self: *MachO, obj: LinkObject, lib_stub: LibStub, explicit: bool) anye
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
 
     const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
     self.files.set(index, .{ .dylib = .{
@@ -804,7 +802,7 @@ fn parseDylibWorker(self: *MachO, index: File.Index) void {
     dylib.parse(self) catch |err| {
         switch (err) {
             error.ParseFailed => {}, // reported already
-            else => |e| self.base.fatal("{s}: unexpected error occurred while parsing input file: {s}", .{
+            else => |e| self.fatal("{s}: unexpected error occurred while parsing input file: {s}", .{
                 dylib.path,
                 @errorName(e),
             }),
@@ -838,7 +836,7 @@ fn parseDependentDylibs(
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
 
     if (self.dylibs.items.len == 0) return;
 
@@ -906,11 +904,11 @@ fn parseDependentDylibs(
                         break :full_path try arena.dupe(u8, full_path);
                     }
                 } else if (eatPrefix(id.name, "@loader_path/")) |_| {
-                    return self.base.fatal("{s}: TODO handle install_name '{s}'", .{
+                    return self.fatal("{s}: TODO handle install_name '{s}'", .{
                         self.getFile(dylib_index).?.dylib.path, id.name,
                     });
                 } else if (eatPrefix(id.name, "@executable_path/")) |_| {
-                    return self.base.fatal("{s}: TODO handle install_name '{s}'", .{
+                    return self.fatal("{s}: TODO handle install_name '{s}'", .{
                         self.getFile(dylib_index).?.dylib.path, id.name,
                     });
                 }
@@ -966,7 +964,7 @@ fn parseDependentDylibs(
                         umbrella.rpaths.putAssumeCapacity(try gpa.dupe(u8, rpath), {});
                     }
                 }
-            } else self.base.fatal("{s}: unable to resolve dependency {s}", .{ dylib.getUmbrella(self).path, id.name });
+            } else self.fatal("{s}: unable to resolve dependency {s}", .{ dylib.getUmbrella(self).path, id.name });
         }
     }
 }
@@ -999,7 +997,7 @@ pub fn resolveSymbols(self: *MachO) !void {
         const index = self.objects.items[i];
         if (!self.getFile(index).?.object.alive) {
             _ = self.objects.orderedRemove(i);
-            self.files.items(.data)[index].object.deinit(self.base.allocator);
+            self.files.items(.data)[index].object.deinit(self.allocator);
             self.files.set(index, .null);
         } else i += 1;
     }
@@ -1037,7 +1035,7 @@ fn deadStripDylibs(self: *MachO) void {
         const index = self.dylibs.items[i];
         if (!self.getFile(index).?.dylib.isAlive(self)) {
             _ = self.dylibs.orderedRemove(i);
-            self.files.items(.data)[index].dylib.deinit(self.base.allocator);
+            self.files.items(.data)[index].dylib.deinit(self.allocator);
             self.files.set(index, .null);
         } else i += 1;
     }
@@ -1050,10 +1048,10 @@ fn convertTentativeDefsAndResolveSpecialSymbols(self: *MachO) !void {
         wg.reset();
         defer wg.wait();
         for (self.objects.items) |index| {
-            self.base.thread_pool.spawnWg(&wg, convertTentativeDefinitionsWorker, .{ self, index });
+            self.thread_pool.spawnWg(&wg, convertTentativeDefinitionsWorker, .{ self, index });
         }
         if (self.getInternalObject()) |obj| {
-            self.base.thread_pool.spawnWg(&wg, resolveSpecialSymbolsWorker, .{ self, obj });
+            self.thread_pool.spawnWg(&wg, resolveSpecialSymbolsWorker, .{ self, obj });
         }
     }
 
@@ -1066,7 +1064,7 @@ fn convertTentativeDefinitionsWorker(self: *MachO, index: File.Index) void {
 
     const object = self.getFile(index).?.object;
     object.convertTentativeDefinitions(self) catch |err| {
-        self.base.fatal("{s}: unexpected error occurred while converting tentative symbols into defined symbols: {s}", .{
+        self.fatal("{s}: unexpected error occurred while converting tentative symbols into defined symbols: {s}", .{
             object.fmtPath(),
             @errorName(err),
         });
@@ -1079,14 +1077,14 @@ fn resolveSpecialSymbolsWorker(self: *MachO, obj: *InternalObject) void {
     defer tracy.end();
 
     obj.resolveBoundarySymbols(self) catch |err| {
-        self.base.fatal("unexpected error occurred while resolving boundary symbols: {s}", .{
+        self.fatal("unexpected error occurred while resolving boundary symbols: {s}", .{
             @errorName(err),
         });
         _ = self.has_errors.swap(true, .seq_cst);
         return;
     };
     obj.resolveObjcMsgSendSymbols(self) catch |err| {
-        self.base.fatal("unexpected error occurred while resolving ObjC msgsend stubs: {s}", .{
+        self.fatal("unexpected error occurred while resolving ObjC msgsend stubs: {s}", .{
             @errorName(err),
         });
         _ = self.has_errors.swap(true, .seq_cst);
@@ -1121,7 +1119,7 @@ pub fn dedupLiterals(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     var lp: LiteralPool = .{};
     defer lp.deinit(gpa);
 
@@ -1137,10 +1135,10 @@ pub fn dedupLiterals(self: *MachO) !void {
         wg.reset();
         defer wg.wait();
         for (self.objects.items) |index| {
-            self.base.thread_pool.spawnWg(&wg, File.dedupLiterals, .{ self.getFile(index).?, lp, self });
+            self.thread_pool.spawnWg(&wg, File.dedupLiterals, .{ self.getFile(index).?, lp, self });
         }
         if (self.getInternalObject()) |object| {
-            self.base.thread_pool.spawnWg(&wg, File.dedupLiterals, .{ object.asFile(), lp, self });
+            self.thread_pool.spawnWg(&wg, File.dedupLiterals, .{ object.asFile(), lp, self });
         }
     }
 
@@ -1162,10 +1160,10 @@ fn checkDuplicates(self: *MachO) !void {
         wg.reset();
         defer wg.wait();
         for (self.objects.items) |index| {
-            self.base.thread_pool.spawnWg(&wg, checkDuplicatesWorker, .{ self, self.getFile(index).? });
+            self.thread_pool.spawnWg(&wg, checkDuplicatesWorker, .{ self, self.getFile(index).? });
         }
         if (self.getInternalObject()) |object| {
-            self.base.thread_pool.spawnWg(&wg, checkDuplicatesWorker, .{ self, object.asFile() });
+            self.thread_pool.spawnWg(&wg, checkDuplicatesWorker, .{ self, object.asFile() });
         }
     }
 
@@ -1178,7 +1176,7 @@ fn checkDuplicatesWorker(self: *MachO, file: File) void {
     const tracy = trace(@src());
     defer tracy.end();
     file.checkDuplicates(self) catch |err| {
-        self.base.fatal("{}: failed to check duplicate definitions: {s}", .{
+        self.fatal("{}: failed to check duplicate definitions: {s}", .{
             file.fmtPath(),
             @errorName(err),
         });
@@ -1192,7 +1190,7 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
 
     if (self.dupes.keys().len == 0) return; // Nothing to do
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const max_notes = 3;
 
     // We will sort by name, and then by file to ensure deterministic output.
@@ -1210,7 +1208,7 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
         const notes = self.dupes.get(key).?;
         const nnotes = @min(notes.items.len, max_notes) + @intFromBool(notes.items.len > max_notes);
 
-        const err = try self.base.addErrorWithNotes(nnotes + 1);
+        const err = try self.addErrorWithNotes(nnotes + 1);
         defer err.unlock();
         try err.addMsg("duplicate symbol definition: {s}", .{sym.getName(self)});
         try err.addNote("defined by {}", .{sym.getFile(self).?.fmtPath()});
@@ -1239,10 +1237,10 @@ fn scanRelocs(self: *MachO) !void {
         wg.reset();
         defer wg.wait();
         for (self.objects.items) |index| {
-            self.base.thread_pool.spawnWg(&wg, scanRelocsWorker, .{ self, self.getFile(index).? });
+            self.thread_pool.spawnWg(&wg, scanRelocsWorker, .{ self, self.getFile(index).? });
         }
         if (self.getInternalObject()) |obj| {
-            self.base.thread_pool.spawnWg(&wg, scanRelocsWorker, .{ self, obj.asFile() });
+            self.thread_pool.spawnWg(&wg, scanRelocsWorker, .{ self, obj.asFile() });
         }
     }
 
@@ -1266,7 +1264,7 @@ fn scanRelocs(self: *MachO) !void {
 
 fn scanRelocsWorker(self: *MachO, file: File) void {
     file.scanRelocs(self) catch |err| {
-        self.base.fatal("{}: failed to scan relocations: {s}", .{
+        self.fatal("{}: failed to scan relocations: {s}", .{
             file.fmtPath(),
             @errorName(err),
         });
@@ -1296,11 +1294,11 @@ fn reportUndefs(self: *MachO) !void {
     const addFn = switch (self.options.undefined_treatment) {
         .dynamic_lookup => unreachable, // handled above
         .suppress => unreachable, // handled above
-        .@"error" => &Ld.addErrorWithNotes,
-        .warn => &Ld.addWarningWithNotes,
+        .@"error" => &MachO.addErrorWithNotes,
+        .warn => &MachO.addWarningWithNotes,
     };
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const max_notes = 4;
 
     // We will sort by name, and then by file to ensure deterministic output.
@@ -1332,7 +1330,7 @@ fn reportUndefs(self: *MachO) !void {
             break :nnotes @min(nnotes, max_notes) + @intFromBool(nnotes > max_notes);
         };
 
-        const err = try addFn(&self.base, nnotes);
+        const err = try addFn(self, nnotes);
         defer err.unlock();
 
         if (self.options.arch_multiple) {
@@ -1429,7 +1427,7 @@ fn initSyntheticSections(self: *MachO) !void {
     }
 
     if (self.getInternalObject()) |obj| {
-        const gpa = self.base.allocator;
+        const gpa = self.allocator;
 
         for (obj.boundary_symbols.items) |sym_index| {
             const ref = obj.getSymbolRef(sym_index, self);
@@ -1552,7 +1550,7 @@ pub fn sortSections(self: *MachO) !void {
         }
     };
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
 
     var entries = try std.ArrayList(Entry).initCapacity(gpa, self.sections.slice().len);
     defer entries.deinit();
@@ -1619,7 +1617,7 @@ pub fn addAtomsToSections(self: *MachO) !void {
             const atom = file.getAtom(atom_index) orelse continue;
             if (!atom.alive.load(.seq_cst)) continue;
             const atoms = &self.sections.items(.atoms)[atom.out_n_sect];
-            try atoms.append(self.base.allocator, .{ .index = atom.atom_index, .file = index });
+            try atoms.append(self.allocator, .{ .index = atom.atom_index, .file = index });
         }
     }
     if (self.getInternalObject()) |object| {
@@ -1627,7 +1625,7 @@ pub fn addAtomsToSections(self: *MachO) !void {
             const atom = object.getAtom(atom_index) orelse continue;
             if (!atom.alive.load(.seq_cst)) continue;
             const atoms = &self.sections.items(.atoms)[atom.out_n_sect];
-            try atoms.append(self.base.allocator, .{ .index = atom.atom_index, .file = object.index });
+            try atoms.append(self.allocator, .{ .index = atom.atom_index, .file = object.index });
         }
     }
 }
@@ -1669,26 +1667,26 @@ fn calcSectionSizes(self: *MachO) !void {
         for (slice.items(.header), slice.items(.atoms), 0..) |header, atoms, i| {
             if (atoms.items.len == 0) continue;
             if (self.requiresThunks() and header.isCode()) continue;
-            self.base.thread_pool.spawnWg(&wg, calcSectionSizeWorker, .{ self, @as(u8, @intCast(i)) });
+            self.thread_pool.spawnWg(&wg, calcSectionSizeWorker, .{ self, @as(u8, @intCast(i)) });
         }
 
         if (self.requiresThunks()) {
             for (slice.items(.header), slice.items(.atoms), 0..) |header, atoms, i| {
                 if (!header.isCode()) continue;
                 if (atoms.items.len == 0) continue;
-                self.base.thread_pool.spawnWg(&wg, createThunksWorker, .{ self, @as(u8, @intCast(i)) });
+                self.thread_pool.spawnWg(&wg, createThunksWorker, .{ self, @as(u8, @intCast(i)) });
             }
         }
 
         // At this point, we can also calculate symtab and data-in-code linkedit section sizes
         for (self.objects.items) |index| {
-            self.base.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index).?, self });
+            self.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index).?, self });
         }
         for (self.dylibs.items) |index| {
-            self.base.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index).?, self });
+            self.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index).?, self });
         }
         if (self.getInternalObject()) |obj| {
-            self.base.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ obj.asFile(), self });
+            self.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ obj.asFile(), self });
         }
     }
 
@@ -1766,7 +1764,7 @@ fn calcSectionSizeWorker(self: *MachO, sect_id: u8) void {
     const header = &slice.items(.header)[sect_id];
     const atoms = slice.items(.atoms)[sect_id].items;
     doWork(self, header, atoms) catch |err| {
-        self.base.fatal("failed to calculate size of section '{s},{s}': {s}", .{
+        self.fatal("failed to calculate size of section '{s},{s}': {s}", .{
             header.segName(),
             header.sectName(),
             @errorName(err),
@@ -1780,7 +1778,7 @@ fn createThunksWorker(self: *MachO, sect_id: u8) void {
     defer tracy.end();
     self.createThunks(sect_id) catch |err| {
         const header = self.sections.items(.header)[sect_id];
-        self.base.fatal("failed to create thunks and calculate size of section '{s},{s}': {s}", .{
+        self.fatal("failed to create thunks and calculate size of section '{s},{s}': {s}", .{
             header.segName(),
             header.sectName(),
             @errorName(err),
@@ -1790,7 +1788,7 @@ fn createThunksWorker(self: *MachO, sect_id: u8) void {
 }
 
 fn initSegments(self: *MachO) !void {
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const slice = self.sections.slice();
 
     // First, create segments required by sections
@@ -2091,7 +2089,7 @@ fn updateLazyBindSizeWorker(self: *MachO) void {
         }
     }.doWork;
     doWork(self) catch |err| {
-        self.base.fatal("could not calculate lazy_bind opcodes size: {s}", .{@errorName(err)});
+        self.fatal("could not calculate lazy_bind opcodes size: {s}", .{@errorName(err)});
         _ = self.has_errors.swap(true, .seq_cst);
     };
 }
@@ -2111,7 +2109,7 @@ pub fn updateLinkeditSizeWorker(self: *MachO, tag: enum {
         .data_in_code => self.data_in_code.updateSize(self),
     };
     res catch |err| {
-        self.base.fatal("could not calculate {s} opcodes size: {s}", .{
+        self.fatal("could not calculate {s} opcodes size: {s}", .{
             @tagName(tag),
             @errorName(err),
         });
@@ -2124,7 +2122,7 @@ fn resizeSections(self: *MachO) !void {
     for (slice.items(.header), slice.items(.out)) |header, *out| {
         if (header.isZerofill()) continue;
         const cpu_arch = self.options.cpu_arch.?;
-        try out.resize(self.base.allocator, header.size);
+        try out.resize(self.allocator, header.size);
         const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
         @memset(out.items, padding_byte);
     }
@@ -2134,7 +2132,7 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
 
     const cmd = self.symtab_cmd;
     try self.symtab.resize(gpa, cmd.nsyms);
@@ -2146,13 +2144,13 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
         wg.reset();
         defer wg.wait();
         for (self.objects.items) |index| {
-            self.base.thread_pool.spawnWg(&wg, writeAtomsWorker, .{ self, index });
+            self.thread_pool.spawnWg(&wg, writeAtomsWorker, .{ self, index });
         }
         if (self.getInternalObject()) |obj| {
-            self.base.thread_pool.spawnWg(&wg, writeAtomsWorker, .{ self, obj.index });
+            self.thread_pool.spawnWg(&wg, writeAtomsWorker, .{ self, obj.index });
         }
         for (self.thunks.items) |thunk| {
-            self.base.thread_pool.spawnWg(&wg, writeThunkWorker, .{ self, thunk });
+            self.thread_pool.spawnWg(&wg, writeThunkWorker, .{ self, thunk });
         }
 
         const slice = self.sections.slice();
@@ -2167,28 +2165,28 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
         }) |maybe_sect_id| {
             if (maybe_sect_id) |sect_id| {
                 const out = &slice.items(.out)[sect_id];
-                self.base.thread_pool.spawnWg(&wg, writeSyntheticSectionWorker, .{ self, sect_id, out.items });
+                self.thread_pool.spawnWg(&wg, writeSyntheticSectionWorker, .{ self, sect_id, out.items });
             }
         }
 
         if (self.la_symbol_ptr_sect_index) |_| {
-            self.base.thread_pool.spawnWg(&wg, updateLazyBindSizeWorker, .{self});
+            self.thread_pool.spawnWg(&wg, updateLazyBindSizeWorker, .{self});
         }
 
-        self.base.thread_pool.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .rebase });
-        self.base.thread_pool.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .bind });
-        self.base.thread_pool.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .weak_bind });
-        self.base.thread_pool.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .export_trie });
-        self.base.thread_pool.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .data_in_code });
+        self.thread_pool.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .rebase });
+        self.thread_pool.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .bind });
+        self.thread_pool.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .weak_bind });
+        self.thread_pool.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .export_trie });
+        self.thread_pool.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .data_in_code });
 
         for (self.objects.items) |index| {
-            self.base.thread_pool.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index).?, self });
+            self.thread_pool.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index).?, self });
         }
         for (self.dylibs.items) |index| {
-            self.base.thread_pool.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index).?, self });
+            self.thread_pool.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index).?, self });
         }
         if (self.getInternalObject()) |obj| {
-            self.base.thread_pool.spawnWg(&wg, File.writeSymtab, .{ obj.asFile(), self });
+            self.thread_pool.spawnWg(&wg, File.writeSymtab, .{ obj.asFile(), self });
         }
     }
 
@@ -2201,7 +2199,7 @@ fn writeSectionsToFile(self: *MachO) !void {
 
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.out)) |header, out| {
-        try self.base.file.pwriteAll(out.items, header.offset);
+        try self.file.pwriteAll(out.items, header.offset);
     }
 }
 
@@ -2209,7 +2207,7 @@ fn writeAtomsWorker(self: *MachO, index: File.Index) void {
     const tracy = trace(@src());
     defer tracy.end();
     self.getFile(index).?.writeAtoms(self) catch |err| {
-        self.base.fatal("{}: failed to write atoms: {s}", .{
+        self.fatal("{}: failed to write atoms: {s}", .{
             self.getFile(index).?.fmtPath(),
             @errorName(err),
         });
@@ -2230,7 +2228,7 @@ fn writeThunkWorker(self: *MachO, thunk: Thunk) void {
     }.doWork;
     const out = self.sections.items(.out)[thunk.out_n_sect].items;
     doWork(thunk, out, self) catch |err| {
-        self.base.fatal("failed to write contents of thunk: {s}", .{@errorName(err)});
+        self.fatal("failed to write contents of thunk: {s}", .{@errorName(err)});
         _ = self.has_errors.swap(true, .seq_cst);
     };
 }
@@ -2280,7 +2278,7 @@ fn writeSyntheticSectionWorker(self: *MachO, sect_id: u8, out: []u8) void {
         unreachable;
     };
     doWork(self, tag, out) catch |err| {
-        self.base.fatal("could not write section '{s},{s}' to file: {s}", .{
+        self.fatal("could not write section '{s},{s}' to file: {s}", .{
             header.segName(),
             header.sectName(),
             @errorName(err),
@@ -2302,7 +2300,7 @@ fn writeDyldInfo(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const base_off = self.getLinkeditSegment().fileoff;
     const cmd = self.dyld_info_cmd;
     var needed_size: u32 = 0;
@@ -2328,25 +2326,25 @@ fn writeDyldInfo(self: *MachO) !void {
     try self.lazy_bind.write(writer);
     try stream.seekTo(cmd.export_off - base_off);
     try self.export_trie.write(writer);
-    try self.base.file.pwriteAll(buffer, cmd.rebase_off);
+    try self.file.pwriteAll(buffer, cmd.rebase_off);
 }
 
 pub fn writeDataInCode(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const cmd = self.data_in_code_cmd;
     var buffer = try std.ArrayList(u8).initCapacity(gpa, self.data_in_code.size());
     defer buffer.deinit();
     try self.data_in_code.write(self, buffer.writer());
-    try self.base.file.pwriteAll(buffer.items, cmd.dataoff);
+    try self.file.pwriteAll(buffer.items, cmd.dataoff);
 }
 
 fn calcSymtabSize(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
 
     var files = std.ArrayList(File.Index).init(gpa);
     defer files.deinit();
@@ -2410,25 +2408,25 @@ fn calcSymtabSize(self: *MachO) !void {
 fn writeIndsymtab(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const cmd = self.dysymtab_cmd;
     const needed_size = cmd.nindirectsyms * @sizeOf(u32);
     var buffer = try std.ArrayList(u8).initCapacity(gpa, needed_size);
     defer buffer.deinit();
     try self.indsymtab.write(self, buffer.writer());
-    try self.base.file.pwriteAll(buffer.items, cmd.indirectsymoff);
+    try self.file.pwriteAll(buffer.items, cmd.indirectsymoff);
 }
 
 pub fn writeSymtabToFile(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
     const cmd = self.symtab_cmd;
-    try self.base.file.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
-    try self.base.file.pwriteAll(self.strtab.items, cmd.stroff);
+    try self.file.pwriteAll(mem.sliceAsBytes(self.symtab.items), cmd.symoff);
+    try self.file.pwriteAll(self.strtab.items, cmd.stroff);
 }
 
 fn writeLoadCommands(self: *MachO) !struct { usize, usize, usize } {
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const needed_size = load_commands.calcLoadCommandsSize(self, false);
     const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
@@ -2536,7 +2534,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, usize } {
 
     assert(cwriter.bytes_written == needed_size);
 
-    try self.base.file.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
+    try self.file.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 
     return .{ ncmds, buffer.len, uuid_cmd_offset };
 }
@@ -2590,7 +2588,7 @@ fn writeHeader(self: *MachO, ncmds: usize, sizeofcmds: usize) !void {
 
     log.debug("writing Mach-O header {}", .{header});
 
-    try self.base.file.pwriteAll(mem.asBytes(&header), 0);
+    try self.file.pwriteAll(mem.asBytes(&header), 0);
 }
 
 fn writeUuid(self: *MachO, uuid_cmd_offset: usize, has_codesig: bool) !void {
@@ -2601,9 +2599,9 @@ fn writeUuid(self: *MachO, uuid_cmd_offset: usize, has_codesig: bool) !void {
         const seg = self.getLinkeditSegment();
         break :blk seg.fileoff + seg.filesize;
     } else self.codesig_cmd.dataoff;
-    try calcUuid(self.base.allocator, self.base.thread_pool, self.base.file, file_size, &self.uuid_cmd.uuid);
+    try calcUuid(self.allocator, self.thread_pool, self.file, file_size, &self.uuid_cmd.uuid);
     const offset = uuid_cmd_offset + @sizeOf(macho.load_command);
-    try self.base.file.pwriteAll(&self.uuid_cmd.uuid, offset);
+    try self.file.pwriteAll(&self.uuid_cmd.uuid, offset);
 }
 
 pub fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
@@ -2620,7 +2618,7 @@ pub fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
     log.debug("writing code signature padding from 0x{x} to 0x{x}", .{ offset, offset + needed_size });
     // Pad out the space. We need to do this to calculate valid hashes for everything in the file
     // except for code signature data.
-    try self.base.file.pwriteAll(&[_]u8{0}, offset + needed_size - 1);
+    try self.file.pwriteAll(&[_]u8{0}, offset + needed_size - 1);
 
     self.codesig_cmd.dataoff = @as(u32, @intCast(offset));
     self.codesig_cmd.datasize = @as(u32, @intCast(needed_size));
@@ -2633,11 +2631,11 @@ pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
     const seg = self.getTextSegment();
     const offset = self.codesig_cmd.dataoff;
 
-    var buffer = std.ArrayList(u8).init(self.base.allocator);
+    var buffer = std.ArrayList(u8).init(self.allocator);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(code_sig.size());
     try code_sig.writeAdhocSignature(self, .{
-        .file = self.base.file,
+        .file = self.file,
         .exec_seg_base = seg.fileoff,
         .exec_seg_limit = seg.filesize,
         .file_size = offset,
@@ -2650,7 +2648,7 @@ pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
         offset + buffer.items.len,
     });
 
-    try self.base.file.pwriteAll(buffer.items, offset);
+    try self.file.pwriteAll(buffer.items, offset);
 }
 
 /// XNU starting with Big Sur running on arm64 is caching inodes of running binaries.
@@ -2734,7 +2732,7 @@ pub fn addSection(
     sectname: []const u8,
     opts: AddSectionOpts,
 ) !u8 {
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const index = @as(u8, @intCast(try self.sections.addOne(gpa)));
     self.sections.set(index, .{
         .segment_id = 0, // Segments will be created automatically later down the pipeline.
@@ -2803,7 +2801,7 @@ pub fn getInternalObject(self: *MachO) ?*InternalObject {
 }
 
 pub fn addFileHandle(self: *MachO, file: std.fs.File) !File.HandleIndex {
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const index: File.HandleIndex = @intCast(self.file_handles.items.len);
     const fh = try self.file_handles.addOne(gpa);
     fh.* = file;
@@ -2817,7 +2815,7 @@ pub fn getFileHandle(self: MachO, index: File.HandleIndex) File.Handle {
 
 fn addThunk(self: *MachO) !Thunk.Index {
     const index = @as(Thunk.Index, @intCast(self.thunks.items.len));
-    const thunk = try self.thunks.addOne(self.base.allocator);
+    const thunk = try self.thunks.addOne(self.allocator);
     thunk.* = .{};
     return index;
 }
@@ -2872,7 +2870,7 @@ fn createThunks(self: *MachO, sect_id: u8) !void {
     // and assume margin to be 5MiB.
     const max_allowed_distance = max_distance - 0x500_000;
 
-    const gpa = self.base.allocator;
+    const gpa = self.allocator;
     const slice = self.sections.slice();
     const header = &slice.items(.header)[sect_id];
     const thnks = &slice.items(.thunks)[sect_id];
@@ -3056,6 +3054,11 @@ fn formatSectType(
     };
     try writer.print("{s}", .{name});
 }
+
+pub const Emit = struct {
+    directory: fs.Dir,
+    sub_path: []const u8,
+};
 
 pub const LinkObject = struct {
     path: []const u8 = "",
@@ -3377,63 +3380,259 @@ pub const String = struct {
     len: u32 = 0,
 };
 
-pub const base_tag = Ld.Tag.macho;
+pub const ErrorMsg = struct {
+    msg: []const u8,
+    notes: std.ArrayListUnmanaged(ErrorMsg) = .{},
+
+    fn deinit(err: *ErrorMsg, allocator: Allocator) void {
+        allocator.free(err.msg);
+        for (err.notes.items) |*note| note.deinit(allocator);
+        err.notes.deinit(allocator);
+    }
+};
+
+pub fn warn(self: *MachO, comptime format: []const u8, args: anytype) void {
+    const warning = self.addWarningWithNotes(0) catch return;
+    defer warning.unlock();
+    warning.addMsg(format, args) catch return;
+}
+
+pub fn fatal(self: *MachO, comptime format: []const u8, args: anytype) void {
+    const err = self.addErrorWithNotes(0) catch return;
+    defer err.unlock();
+    err.addMsg(format, args) catch return;
+}
+
+pub const ErrorWithNotes = struct {
+    err_index: usize,
+    allocator: Allocator,
+    errors: []ErrorMsg,
+    lock: *std.Thread.Mutex,
+
+    pub fn addMsg(err: ErrorWithNotes, comptime format: []const u8, args: anytype) !void {
+        const err_msg = err.getErrorMsg();
+        err_msg.msg = try std.fmt.allocPrint(err.allocator, format, args);
+    }
+
+    pub fn addNote(err: ErrorWithNotes, comptime format: []const u8, args: anytype) !void {
+        const err_msg = err.getErrorMsg();
+        err_msg.notes.appendAssumeCapacity(.{
+            .msg = try std.fmt.allocPrint(err.allocator, format, args),
+        });
+    }
+
+    fn getErrorMsg(err: ErrorWithNotes) *ErrorMsg {
+        assert(err.err_index < err.errors.len);
+        return &err.errors[err.err_index];
+    }
+
+    pub fn unlock(err: ErrorWithNotes) void {
+        err.lock.unlock();
+    }
+};
+
+pub fn addErrorWithNotes(self: *MachO, note_count: usize) !ErrorWithNotes {
+    self.errors_mutex.lock();
+    errdefer self.errors_mutex.unlock();
+    const err_index = self.errors.items.len;
+    const err_msg = try self.errors.addOne(self.allocator);
+    err_msg.* = .{ .msg = undefined };
+    try err_msg.notes.ensureTotalCapacityPrecise(self.allocator, note_count);
+    return .{
+        .err_index = err_index,
+        .allocator = self.allocator,
+        .errors = self.errors.items,
+        .lock = &self.errors_mutex,
+    };
+}
+
+pub fn addWarningWithNotes(self: *MachO, note_count: usize) !ErrorWithNotes {
+    self.warnings_mutex.lock();
+    errdefer self.warnings_mutex.unlock();
+    const err_index = self.warnings.items.len;
+    const err_msg = try self.warnings.addOne(self.allocator);
+    err_msg.* = .{ .msg = undefined };
+    try err_msg.notes.ensureTotalCapacityPrecise(self.allocator, note_count);
+    return .{
+        .err_index = err_index,
+        .allocator = self.allocator,
+        .errors = self.warnings.items,
+        .lock = &self.warnings_mutex,
+    };
+}
+
+pub fn getAllWarningsAlloc(self: *MachO) !ErrorBundle {
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(self.allocator);
+    defer bundle.deinit();
+    defer {
+        while (self.warnings.popOrNull()) |msg| {
+            var mut_msg = msg;
+            mut_msg.deinit(self.allocator);
+        }
+    }
+
+    for (self.warnings.items) |msg| {
+        const notes = msg.notes.items;
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString(msg.msg),
+            .notes_len = @as(u32, @intCast(notes.len)),
+        });
+        const notes_start = try bundle.reserveNotes(@as(u32, @intCast(notes.len)));
+        for (notes_start.., notes) |index, note| {
+            bundle.extra.items[index] = @intFromEnum(bundle.addErrorMessageAssumeCapacity(.{
+                .msg = try bundle.addString(note.msg),
+            }));
+        }
+    }
+
+    return bundle.toOwnedBundle("");
+}
+
+pub fn getAllErrorsAlloc(self: *MachO) !ErrorBundle {
+    var bundle: ErrorBundle.Wip = undefined;
+    try bundle.init(self.allocator);
+    defer bundle.deinit();
+    defer {
+        while (self.errors.popOrNull()) |msg| {
+            var mut_msg = msg;
+            mut_msg.deinit(self.allocator);
+        }
+    }
+
+    for (self.errors.items) |msg| {
+        const notes = msg.notes.items;
+        try bundle.addRootErrorMessage(.{
+            .msg = try bundle.addString(msg.msg),
+            .notes_len = @as(u32, @intCast(notes.len)),
+        });
+        const notes_start = try bundle.reserveNotes(@as(u32, @intCast(notes.len)));
+        for (notes_start.., notes) |index, note| {
+            bundle.extra.items[index] = @intFromEnum(bundle.addErrorMessageAssumeCapacity(.{
+                .msg = try bundle.addString(note.msg),
+            }));
+        }
+    }
+
+    return bundle.toOwnedBundle("");
+}
+
+fn renderWarningToStdErr(eb: ErrorBundle) void {
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
+    const stderr = std.io.getStdErr();
+    return renderWarningToWriter(eb, stderr.writer()) catch return;
+}
+
+fn renderWarningToWriter(eb: ErrorBundle, writer: anytype) !void {
+    for (eb.getMessages()) |msg| {
+        try renderWarningMessageToWriter(eb, msg, writer, "warning", .cyan, 0);
+    }
+}
+
+fn renderWarningMessageToWriter(
+    eb: ErrorBundle,
+    err_msg_index: ErrorBundle.MessageIndex,
+    stderr: anytype,
+    kind: []const u8,
+    color: std.io.tty.Color,
+    indent: usize,
+) anyerror!void {
+    const ttyconf = std.io.tty.detectConfig(std.io.getStdErr());
+    const err_msg = eb.getErrorMessage(err_msg_index);
+    try ttyconf.setColor(stderr, color);
+    try stderr.writeByteNTimes(' ', indent);
+    try stderr.writeAll(kind);
+    try stderr.writeAll(": ");
+    try ttyconf.setColor(stderr, .reset);
+    const msg = eb.nullTerminatedString(err_msg.msg);
+    if (err_msg.count == 1) {
+        try stderr.print("{s}\n", .{msg});
+    } else {
+        try stderr.print("{s}", .{msg});
+        try ttyconf.setColor(stderr, .dim);
+        try stderr.print(" ({d} times)\n", .{err_msg.count});
+    }
+    try ttyconf.setColor(stderr, .reset);
+    for (eb.getNotes(err_msg_index)) |note| {
+        try renderWarningMessageToWriter(eb, note, stderr, "note", .white, indent + 4);
+    }
+}
+
+pub fn reportErrors(self: *MachO) void {
+    var errors = self.getAllErrorsAlloc() catch @panic("OOM");
+    defer errors.deinit(self.allocator);
+    if (errors.errorMessageCount() > 0) {
+        errors.renderToStdErr(.{ .ttyconf = std.io.tty.detectConfig(std.io.getStdErr()) });
+    }
+}
+
+pub fn reportWarnings(self: *MachO) void {
+    var warnings = self.getAllWarningsAlloc() catch @panic("OOM");
+    defer warnings.deinit(self.allocator);
+    if (warnings.errorMessageCount() > 0) {
+        renderWarningToStdErr(warnings);
+    }
+}
+
+test {
+    std.testing.refAllDeclsRecursive(MachO);
+}
 
 const aarch64 = @import("aarch64.zig");
 const assert = std.debug.assert;
 const build_options = @import("build_options");
 const builtin = @import("builtin");
-const calcUuid = @import("MachO/uuid.zig").calcUuid;
-const dead_strip = @import("MachO/dead_strip.zig");
+const calcUuid = @import("uuid.zig").calcUuid;
+const dead_strip = @import("dead_strip.zig");
 const dwarf = std.dwarf;
-const eh_frame = @import("MachO/eh_frame.zig");
-const fat = @import("MachO/fat.zig");
+const eh_frame = @import("eh_frame.zig");
+const fat = @import("fat.zig");
 const fmt = std.fmt;
 const fs = std.fs;
-const load_commands = @import("MachO/load_commands.zig");
+const load_commands = @import("load_commands.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
-const relocatable = @import("MachO/relocatable.zig");
-const synthetic = @import("MachO/synthetic.zig");
+const relocatable = @import("relocatable.zig");
+const synthetic = @import("synthetic.zig");
 const state_log = std.log.scoped(.state);
 const std = @import("std");
 const trace = @import("tracy.zig").trace;
 
 const Allocator = mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const Archive = @import("MachO/Archive.zig");
-const Atom = @import("MachO/Atom.zig");
+const Archive = @import("Archive.zig");
+const Atom = @import("Atom.zig");
 const AtomicBool = std.atomic.Value(bool);
 const Bind = synthetic.Bind;
-const CodeSignature = @import("MachO/CodeSignature.zig");
+const CodeSignature = @import("CodeSignature.zig");
 const DataInCode = synthetic.DataInCode;
-const Dylib = @import("MachO/Dylib.zig");
+const Dylib = @import("Dylib.zig");
+const ErrorBundle = std.zig.ErrorBundle;
 const ExportTrie = synthetic.ExportTrie;
-const File = @import("MachO/file.zig").File;
+const File = @import("file.zig").File;
 const GotSection = synthetic.GotSection;
 const Hash = std.hash.Wyhash;
 const Indsymtab = synthetic.Indsymtab;
-const InternalObject = @import("MachO/InternalObject.zig");
-const Ld = @import("Ld.zig");
+const InternalObject = @import("InternalObject.zig");
 const MachO = @This();
 const Md5 = std.crypto.hash.Md5;
-const Object = @import("MachO/Object.zig");
+const Object = @import("Object.zig");
 const ObjcStubsSection = synthetic.ObjcStubsSection;
-pub const Options = @import("MachO/Options.zig");
+pub const Options = @import("Options.zig");
 const LazyBind = synthetic.LazyBind;
 const LaSymbolPtrSection = synthetic.LaSymbolPtrSection;
 const LibStub = @import("tapi.zig").LibStub;
-const Rebase = @import("MachO/dyld_info/Rebase.zig");
-const Symbol = @import("MachO/Symbol.zig");
-const StringTable = @import("StringTable.zig");
+const Rebase = @import("dyld_info/Rebase.zig");
+const Symbol = @import("Symbol.zig");
 const StubsSection = synthetic.StubsSection;
 const StubsHelperSection = synthetic.StubsHelperSection;
-const Thunk = @import("MachO/Thunk.zig");
+const Thunk = @import("Thunk.zig");
 const ThreadPool = std.Thread.Pool;
 const TlvPtrSection = synthetic.TlvPtrSection;
-const UnwindInfo = @import("MachO/UnwindInfo.zig");
+const UnwindInfo = @import("UnwindInfo.zig");
 const WaitGroup = std.Thread.WaitGroup;
 const WeakBind = synthetic.WeakBind;

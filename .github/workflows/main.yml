@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-13, macos-14, ubuntu-latest ]
+        os: [ macos-13, macos-14 ]
 
     steps:
     - uses: actions/checkout@v3
@@ -19,41 +19,3 @@ jobs:
     - run: zig version
     - run: zig fmt --check src 
     - run: zig build test -Dhas-static -Dhas-zig -Dhas-objc-msgsend-stubs
-
-  windows:
-    name: Test Windows
-    runs-on: windows-2019
-    steps:
-    - run: git config --global core.autocrlf false
-    - uses: actions/checkout@v3
-    - uses: mlugg/setup-zig@v1
-      with:
-        version: 0.13.0
-    - uses: ilammy/msvc-dev-cmd@v1
-    - run: zig version
-    - run: zig fmt --check src 
-    - run: zig build test -Dhas-zig
-
-  gcc_musl:
-    name: Test gcc with musl
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - uses: mlugg/setup-zig@v1
-      with:
-        version: 0.13.0
-    - run: sudo apt-get install -y musl-tools
-    - run: zig version
-    - run: CC=musl-gcc zig build test -Dhas-static -Dmusl
-
-  clang_glibc:
-    name: Test clang with glibc
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - uses: mlugg/setup-zig@v1
-      with:
-        version: 0.13.0
-    - run: sudo apt-get install -y clang
-    - run: zig version
-    - run: CC=clang zig build test -Dhas-static -Dsystem-compiler=clang
