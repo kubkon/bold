@@ -11,11 +11,6 @@ const Allocator = mem.Allocator;
 const CrossTarget = std.zig.CrossTarget;
 const MachO = @import("MachO.zig");
 
-pub const SearchStrategy = enum {
-    paths_first,
-    dylibs_first,
-};
-
 const usage =
     \\Usage: bold [files...]
     \\
@@ -489,19 +484,19 @@ const ArgsIterator = struct {
     args: []const []const u8,
     i: usize = 0,
 
-    pub fn next(it: *@This()) ?[]const u8 {
+    fn next(it: *@This()) ?[]const u8 {
         if (it.i >= it.args.len) return null;
         defer it.i += 1;
         return it.args[it.i];
     }
 
-    pub fn nextOrFatal(it: *@This(), ctx: anytype) []const u8 {
+    fn nextOrFatal(it: *@This(), ctx: anytype) []const u8 {
         const arg = it.next() orelse
             ctx.fatal("Expected parameter after '{s}'", .{it.args[it.i - 1]});
         return arg;
     }
 
-    pub fn peek(it: *@This()) ?[]const u8 {
+    fn peek(it: *@This()) ?[]const u8 {
         const arg = it.next();
         defer if (it.i > 0) {
             it.i -= 1;
@@ -513,41 +508,24 @@ const ArgsIterator = struct {
 fn ArgParser(comptime Ctx: type) type {
     return struct {
         arg: []const u8 = undefined,
-        it: *Options.ArgsIterator,
+        it: *ArgsIterator,
         ctx: Ctx,
 
-        pub fn hasMore(p: *Self) bool {
+        fn hasMore(p: *Self) bool {
             p.arg = p.it.next() orelse return false;
             return true;
         }
 
-        pub fn flagAny(p: *Self, comptime pat: []const u8) bool {
+        fn flagAny(p: *Self, comptime pat: []const u8) bool {
             return p.flag2(pat) or p.flag1(pat);
         }
 
-        pub fn flag2(p: *Self, comptime pat: []const u8) bool {
+        fn flag2(p: *Self, comptime pat: []const u8) bool {
             return p.flagPrefix(pat, "--");
         }
 
-        pub fn flag1(p: *Self, comptime pat: []const u8) bool {
+        fn flag1(p: *Self, comptime pat: []const u8) bool {
             return p.flagPrefix(pat, "-");
-        }
-
-        pub fn flagZ(p: *Self, comptime pat: []const u8) bool {
-            const prefix = "-z";
-            const i = p.it.i;
-            const actual_flag = blk: {
-                if (mem.eql(u8, p.arg, prefix)) {
-                    break :blk p.it.nextOrFatal(p.ctx);
-                }
-                if (mem.startsWith(u8, p.arg, prefix)) {
-                    break :blk p.arg[prefix.len..];
-                }
-                return false;
-            };
-            if (mem.eql(u8, actual_flag, pat)) return true;
-            p.it.i = i;
-            return false;
         }
 
         fn flagPrefix(p: *Self, comptime pat: []const u8, comptime prefix: []const u8) bool {
@@ -560,47 +538,20 @@ fn ArgParser(comptime Ctx: type) type {
             return false;
         }
 
-        pub fn argAny(p: *Self, comptime pat: []const u8) ?[]const u8 {
+        fn argAny(p: *Self, comptime pat: []const u8) ?[]const u8 {
             if (p.arg2(pat)) |value| return value;
             return p.arg1(pat);
         }
 
-        pub fn arg2(p: *Self, comptime pat: []const u8) ?[]const u8 {
+        fn arg2(p: *Self, comptime pat: []const u8) ?[]const u8 {
             return p.argPrefix(pat, "--");
         }
 
-        pub fn arg1(p: *Self, comptime pat: []const u8) ?[]const u8 {
+        fn arg1(p: *Self, comptime pat: []const u8) ?[]const u8 {
             return p.argPrefix(pat, "-");
         }
 
-        pub fn argZ(p: *Self, comptime pat: []const u8) ?[]const u8 {
-            const prefix = "-z";
-            const i = p.it.i;
-            const actual_arg = blk: {
-                if (mem.eql(u8, p.arg, prefix)) {
-                    if (p.it.peek()) |next| {
-                        if (mem.startsWith(u8, next, "-")) return null;
-                    }
-                    break :blk p.it.nextOrFatal(p.ctx);
-                }
-                if (mem.startsWith(u8, p.arg, prefix)) {
-                    break :blk p.arg[prefix.len..];
-                }
-                return null;
-            };
-            if (mem.startsWith(u8, actual_arg, pat)) {
-                if (mem.indexOf(u8, actual_arg, "=")) |index| {
-                    if (index == pat.len) {
-                        const value = actual_arg[index + 1 ..];
-                        return value;
-                    }
-                }
-            }
-            p.it.i = i;
-            return null;
-        }
-
-        pub fn argLLVM(p: *Self) ?[]const u8 {
+        fn argLLVM(p: *Self) ?[]const u8 {
             if (p.flag1("mllvm")) {
                 return p.it.nextOrFatal(p.ctx);
             }
@@ -687,6 +638,11 @@ pub const Platform = struct {
         }
         return false;
     }
+};
+
+pub const SearchStrategy = enum {
+    paths_first,
+    dylibs_first,
 };
 
 const UndefinedTreatment = enum {

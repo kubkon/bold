@@ -1,56 +1,41 @@
 pub fn addTests(b: *Build, comp: *Compile, build_opts: struct {
-    system_compiler: ?SystemCompiler,
-    has_static: bool,
     has_zig: bool,
-    is_musl: bool,
     has_objc_msgsend_stubs: bool,
     is_nix: bool,
 }) *Step {
     const test_step = b.step("test-system-tools", "Run all system tools tests");
     test_step.dependOn(&comp.step);
 
-    const system_compiler: SystemCompiler = build_opts.system_compiler orelse
-        switch (builtin.target.os.tag) {
-        .macos => .clang,
-        .linux => .gcc,
-        else => .gcc,
-    };
-    const cc_override: ?[]const u8 = std.process.getEnvVarOwned(b.allocator, "CC") catch |e| switch (e) {
-        error.EnvironmentVariableNotFound => null,
-        error.InvalidWtf8 => @panic("InvalidWtf8"),
-        error.OutOfMemory => @panic("OOM"),
-    };
     const ld = WriteFile.create(b).addCopyFile(comp.getEmittedBin(), "ld");
-    const opts: Options = .{
+    var opts = Options{
         .ld = ld,
-        .system_compiler = system_compiler,
-        .has_static = build_opts.has_static,
         .has_zig = build_opts.has_zig,
         .has_objc_msgsend_stubs = build_opts.has_objc_msgsend_stubs,
-        .is_musl = build_opts.is_musl,
-        .cc_override = cc_override,
         .is_nix = build_opts.is_nix,
+        .macos_sdk = undefined,
+        .ios_sdk = null,
+    };
+    opts.macos_sdk = std.zig.system.darwin.getSdk(b.allocator, builtin.target) orelse @panic("no macOS SDK found");
+    opts.ios_sdk = blk: {
+        const target = std.zig.system.resolveTargetQuery(.{
+            .cpu_arch = .aarch64,
+            .os_tag = .ios,
+        }) catch break :blk null;
+        break :blk std.zig.system.darwin.getSdk(b.allocator, target);
     };
 
-    test_step.dependOn(macho.addMachOTests(b, opts));
+    macho.addTests(test_step, opts);
 
     return test_step;
 }
 
-pub const SystemCompiler = enum {
-    gcc,
-    clang,
-};
-
 pub const Options = struct {
     ld: LazyPath,
-    system_compiler: SystemCompiler,
-    has_static: bool = false,
-    has_zig: bool = false,
-    has_objc_msgsend_stubs: bool = false,
-    is_musl: bool = false,
-    cc_override: ?[]const u8 = null,
-    is_nix: bool = false,
+    has_zig: bool,
+    has_objc_msgsend_stubs: bool,
+    macos_sdk: []const u8,
+    ios_sdk: ?[]const u8,
+    is_nix: bool,
 };
 
 /// A system command that tracks the command itself via `cmd` Step.Run and output file
