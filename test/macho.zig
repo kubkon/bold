@@ -9,7 +9,6 @@ pub fn addTests(b: *Build, options: common.Options) *Step {
         .has_objc_msgsend_stubs = options.has_objc_msgsend_stubs,
         .macos_sdk = undefined,
         .ios_sdk = null,
-        .cc_override = options.cc_override,
         .is_nix = options.is_nix,
     };
     opts.macos_sdk = std.zig.system.darwin.getSdk(b.allocator, builtin.target) orelse @panic("no macOS SDK found");
@@ -4250,13 +4249,12 @@ const Options = struct {
     has_objc_msgsend_stubs: bool,
     macos_sdk: []const u8,
     ios_sdk: ?[]const u8,
-    cc_override: ?[]const u8,
     is_nix: bool,
 };
 
 fn cc(b: *Build, name: []const u8, opts: Options) SysCmd {
     const cmd = Run.create(b, "cc");
-    cmd.addArgs(&.{ opts.cc_override orelse "cc", "-fno-lto", "-O0" });
+    cmd.addArgs(&.{ "cc", "-fno-lto", "-O0" });
     cmd.addArg("-o");
     const out = cmd.addOutputFileArg(name);
     cmd.addPrefixedDirectorySourceArg("-B", opts.ld.dirname());

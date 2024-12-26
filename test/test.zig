@@ -1,34 +1,16 @@
 pub fn addTests(b: *Build, comp: *Compile, build_opts: struct {
-    system_compiler: ?SystemCompiler,
-    has_static: bool,
     has_zig: bool,
-    is_musl: bool,
     has_objc_msgsend_stubs: bool,
     is_nix: bool,
 }) *Step {
     const test_step = b.step("test-system-tools", "Run all system tools tests");
     test_step.dependOn(&comp.step);
 
-    const system_compiler: SystemCompiler = build_opts.system_compiler orelse
-        switch (builtin.target.os.tag) {
-        .macos => .clang,
-        .linux => .gcc,
-        else => .gcc,
-    };
-    const cc_override: ?[]const u8 = std.process.getEnvVarOwned(b.allocator, "CC") catch |e| switch (e) {
-        error.EnvironmentVariableNotFound => null,
-        error.InvalidWtf8 => @panic("InvalidWtf8"),
-        error.OutOfMemory => @panic("OOM"),
-    };
     const ld = WriteFile.create(b).addCopyFile(comp.getEmittedBin(), "ld");
     const opts: Options = .{
         .ld = ld,
-        .system_compiler = system_compiler,
-        .has_static = build_opts.has_static,
         .has_zig = build_opts.has_zig,
         .has_objc_msgsend_stubs = build_opts.has_objc_msgsend_stubs,
-        .is_musl = build_opts.is_musl,
-        .cc_override = cc_override,
         .is_nix = build_opts.is_nix,
     };
 
@@ -44,12 +26,8 @@ pub const SystemCompiler = enum {
 
 pub const Options = struct {
     ld: LazyPath,
-    system_compiler: SystemCompiler,
-    has_static: bool = false,
     has_zig: bool = false,
     has_objc_msgsend_stubs: bool = false,
-    is_musl: bool = false,
-    cc_override: ?[]const u8 = null,
     is_nix: bool = false,
 };
 
