@@ -1,6 +1,6 @@
 .{
-    .name = "emerald",
-    .version = "0.0.3",
+    .name = "bold",
+    .version = "0.0.4",
 
     .dependencies = .{
         .@"zig-yaml" = .{
