@@ -6,6 +6,7 @@
     flake-utils.url = "github:numtide/flake-utils";
     zig.url = "github:mitchellh/zig-overlay";
     zls.url = "github:zigtools/zls";
+    zacho.url = "github:kubkon/zacho";
 
     # Used for shell.nix
     flake-compat = {
@@ -25,6 +26,7 @@
       (final: prev: {
         zigpkgs = inputs.zig.packages.${prev.system};
         zlspkgs = inputs.zls.packages.${prev.system};
+        zachopkgs = inputs.zacho.packages.${prev.system};
       })
     ];
 
@@ -71,6 +73,7 @@
           buildInputs = commonInputs ++ (with pkgs; [
             zlspkgs.default
             tracy
+            zachopkgs.default
           ]);
 
           TRACY_PATH = "${tracy-src}/public";
