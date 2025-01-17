@@ -5,7 +5,7 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
     zig.url = "github:mitchellh/zig-overlay";
-    zls.url = "github:zigtools/zls";
+    zls.url = "github:zigtools/zls/a26718049a8657d4da04c331aeced1697bc7652b";
     zacho.url = "github:kubkon/zacho";
 
     # Used for shell.nix
@@ -15,31 +15,23 @@
     };
   };
 
-  outputs = {
-    self,
-    nixpkgs,
-    flake-utils,
-    ...
-  } @ inputs: let
-    overlays = [
-      # Other overlays
-      (final: prev: {
-        zigpkgs = inputs.zig.packages.${prev.system};
-        zlspkgs = inputs.zls.packages.${prev.system};
-        zachopkgs = inputs.zacho.packages.${prev.system};
-      })
-    ];
+  outputs = { self, nixpkgs, flake-utils, ... }@inputs:
+    let
+      overlays = [
+        # Other overlays
+        (final: prev: {
+          zigpkgs = inputs.zig.packages.${prev.system};
+          zlspkgs = inputs.zls.packages.${prev.system};
+          zachopkgs = inputs.zacho.packages.${prev.system};
+        })
+      ];
 
-    # Our supported systems are the same supported systems as the Zig binaries
-    systems = builtins.attrNames inputs.zig.packages;
-  in
-    flake-utils.lib.eachSystem systems (
-      system: let
-        pkgs = import nixpkgs {inherit overlays system;};
+      # Our supported systems are the same supported systems as the Zig binaries
+      systems = builtins.attrNames inputs.zig.packages;
+    in flake-utils.lib.eachSystem systems (system:
+      let pkgs = import nixpkgs { inherit overlays system; };
       in rec {
-        commonInputs = with pkgs; [
-          zigpkgs."0.13.0"
-        ];
+        commonInputs = with pkgs; [ zigpkgs."0.13.0" ];
 
         tracy-version = "0.10";
         tracy-src = pkgs.fetchFromGitHub {
@@ -70,17 +62,13 @@
         };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = commonInputs ++ (with pkgs; [
-            zlspkgs.default
-            tracy
-            zachopkgs.default
-          ]);
+          buildInputs = commonInputs
+            ++ (with pkgs; [ zlspkgs.default tracy zachopkgs.default ]);
 
           TRACY_PATH = "${tracy-src}/public";
         };
 
         # For compatibility with older versions of the `nix` binary
         devShell = self.devShells.${system}.default;
-      }
-    );
+      });
 }
