@@ -79,8 +79,10 @@ pub const TbdV4 = struct {
 pub const LibStub = struct {
     arena: std.heap.ArenaAllocator,
     inner: union(enum) {
-        v3: []const TbdV3,
-        v4: []const TbdV4,
+        v3_list: []const TbdV3,
+        v3: TbdV3,
+        v4_list: []const TbdV4,
+        v4: TbdV4,
     },
 
     pub fn loadFromFile(gpa: Allocator, file: fs.File) !LibStub {
@@ -110,28 +112,28 @@ pub const LibStub = struct {
             err: {
                 log.debug("trying to parse as []TbdV4", .{});
                 const inner = yaml.parse(arena.allocator(), []TbdV4) catch break :err;
-                lib_stub.inner = .{ .v4 = inner };
+                lib_stub.inner = .{ .v4_list = inner };
                 break :blk;
             }
 
             err: {
                 log.debug("trying to parse as TbdV4", .{});
                 const inner = yaml.parse(arena.allocator(), TbdV4) catch break :err;
-                lib_stub.inner = .{ .v4 = &.{inner} };
+                lib_stub.inner = .{ .v4 = inner };
                 break :blk;
             }
 
             err: {
                 log.debug("trying to parse as []TbdV3", .{});
                 const inner = yaml.parse(arena.allocator(), []TbdV3) catch break :err;
-                lib_stub.inner = .{ .v3 = inner };
+                lib_stub.inner = .{ .v3_list = inner };
                 break :blk;
             }
 
             err: {
                 log.debug("trying to parse as TbdV3", .{});
                 const inner = yaml.parse(arena.allocator(), TbdV3) catch break :err;
-                lib_stub.inner = .{ .v3 = &.{inner} };
+                lib_stub.inner = .{ .v3 = inner };
                 break :blk;
             }
 

@@ -291,8 +291,10 @@ fn parseTrie(self: *Dylib, data: []const u8, macho_file: *MachO) !void {
 
 fn parseTbd(self: *Dylib, macho_file: *MachO) !void {
     switch (self.lib_stub.?.inner) {
-        .v3 => |stubs| try self.parseTbdV3(stubs, macho_file),
-        .v4 => |stubs| try self.parseTbdV4(stubs, macho_file),
+        .v3_list => |stubs| try self.parseTbdV3(stubs, macho_file),
+        .v3 => |stub| try self.parseTbdV3(&.{stub}, macho_file),
+        .v4_list => |stubs| try self.parseTbdV4(stubs, macho_file),
+        .v4 => |stub| try self.parseTbdV4(&.{stub}, macho_file),
     }
 }
 

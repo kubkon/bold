@@ -803,9 +803,10 @@ fn parseDylibWorker(self: *MachO, index: File.Index) void {
     dylib.parse(self) catch |err| {
         switch (err) {
             error.ParseFailed => {}, // reported already
-            else => |e| self.fatal("{s}: unexpected error occurred while parsing input file: {s}", .{
+            else => |e| self.fatal("{s}: unexpected error occurred while parsing input file: {s}: {?}", .{
                 dylib.path,
                 @errorName(e),
+                @errorReturnTrace(),
             }),
         }
         _ = self.has_errors.swap(true, .seq_cst);
