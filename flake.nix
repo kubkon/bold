@@ -5,7 +5,7 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
     zig.url = "github:mitchellh/zig-overlay";
-    zls.url = "github:zigtools/zls/a26718049a8657d4da04c331aeced1697bc7652b";
+    zls.url = "github:zigtools/zls";
     zacho.url = "github:kubkon/zacho";
 
     # Used for shell.nix
@@ -15,7 +15,13 @@
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, ... }@inputs:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      ...
+    }@inputs:
     let
       overlays = [
         # Other overlays
@@ -28,10 +34,14 @@
 
       # Our supported systems are the same supported systems as the Zig binaries
       systems = builtins.attrNames inputs.zig.packages;
-    in flake-utils.lib.eachSystem systems (system:
-      let pkgs = import nixpkgs { inherit overlays system; };
-      in rec {
-        commonInputs = with pkgs; [ zigpkgs."0.13.0" ];
+    in
+    flake-utils.lib.eachSystem systems (
+      system:
+      let
+        pkgs = import nixpkgs { inherit overlays system; };
+      in
+      rec {
+        commonInputs = with pkgs; [ zigpkgs.master ];
 
         tracy-version = "0.10";
         tracy-src = pkgs.fetchFromGitHub {
@@ -62,13 +72,19 @@
         };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = commonInputs
-            ++ (with pkgs; [ zlspkgs.default tracy zachopkgs.default ]);
+          buildInputs =
+            commonInputs
+            ++ (with pkgs; [
+              zlspkgs.default
+              tracy
+              zachopkgs.default
+            ]);
 
           TRACY_PATH = "${tracy-src}/public";
         };
 
         # For compatibility with older versions of the `nix` binary
         devShell = self.devShells.${system}.default;
-      });
+      }
+    );
 }

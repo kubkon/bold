@@ -224,7 +224,7 @@ pub fn link(self: *MachO) !void {
         // Next, if platform has been worked out to be macOS but wasn't inferred from env vars,
         // do a syscall.
         if (self.options.sdk_version == null and self.options.platform != null) blk: {
-            if ((comptime builtin.target.isDarwin()) and
+            if ((comptime builtin.target.os.tag.isDarwin()) and
                 self.options.platform.?.platform == .MACOS and
                 self.options.inferred_platform_versions[0].version.value == 0)
             {
@@ -2663,7 +2663,7 @@ pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
 pub fn invalidateKernelCache(dir: std.fs.Dir, sub_path: []const u8) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
+    if (comptime builtin.target.os.tag.isDarwin() and builtin.target.cpu.arch == .aarch64) {
         try dir.copyFile(sub_path, dir, sub_path, .{});
     }
 }
@@ -3467,7 +3467,7 @@ pub fn getAllWarningsAlloc(self: *MachO) !ErrorBundle {
     try bundle.init(self.allocator);
     defer bundle.deinit();
     defer {
-        while (self.warnings.popOrNull()) |msg| {
+        while (self.warnings.pop()) |msg| {
             var mut_msg = msg;
             mut_msg.deinit(self.allocator);
         }
@@ -3495,7 +3495,7 @@ pub fn getAllErrorsAlloc(self: *MachO) !ErrorBundle {
     try bundle.init(self.allocator);
     defer bundle.deinit();
     defer {
-        while (self.errors.popOrNull()) |msg| {
+        while (self.errors.pop()) |msg| {
             var mut_msg = msg;
             mut_msg.deinit(self.allocator);
         }

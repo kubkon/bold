@@ -61,11 +61,11 @@ pub const SysCmd = struct {
     }
 
     pub fn addDirectorySource(sys_cmd: SysCmd, dir: LazyPath) void {
-        sys_cmd.cmd.addDirectorySourceArg(dir);
+        sys_cmd.cmd.addDirectoryArg(dir);
     }
 
     pub fn addPrefixedDirectorySource(sys_cmd: SysCmd, prefix: []const u8, dir: LazyPath) void {
-        sys_cmd.cmd.addPrefixedDirectorySourceArg(prefix, dir);
+        sys_cmd.cmd.addPrefixedDirectoryArg(prefix, dir);
     }
 
     pub inline fn addCSource(sys_cmd: SysCmd, bytes: []const u8) void {
@@ -230,9 +230,9 @@ pub const SkipTestStep = struct {
         return self;
     }
 
-    fn make(step: *Step, prog_node: std.Progress.Node) anyerror!void {
+    fn make(step: *Step, options: std.Build.Step.MakeOptions) anyerror!void {
         _ = step;
-        _ = prog_node;
+        _ = options;
         return error.MakeSkipped;
     }
 };
