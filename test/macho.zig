@@ -2636,7 +2636,7 @@ fn testReexportsZig(b: *Build, opts: Options) *Step {
         \\    return x;
         \\}
         \\comptime {
-        \\    @export(foo, .{ .name = "bar", .linkage = .strong });
+        \\    @export(&foo, .{ .name = "bar", .linkage = .strong });
         \\}
     );
 
@@ -4227,7 +4227,7 @@ fn cc(b: *Build, name: []const u8, opts: Options) SysCmd {
     cmd.addArgs(&.{ "cc", "-fno-lto", "-O0" });
     cmd.addArg("-o");
     const out = cmd.addOutputFileArg(name);
-    cmd.addPrefixedDirectorySourceArg("-B", opts.ld.dirname());
+    cmd.addPrefixedDirectoryArg("-B", opts.ld.dirname());
     return .{ .cmd = cmd, .out = out };
 }
 
@@ -4236,7 +4236,7 @@ fn cpp(b: *Build, name: []const u8, opts: Options) SysCmd {
     cmd.addArgs(&.{ "c++", "-fno-lto", "-O0" });
     cmd.addArg("-o");
     const out = cmd.addOutputFileArg(name);
-    cmd.addPrefixedDirectorySourceArg("-B", opts.ld.dirname());
+    cmd.addPrefixedDirectoryArg("-B", opts.ld.dirname());
     return .{ .cmd = cmd, .out = out };
 }
 

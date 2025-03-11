@@ -76,99 +76,74 @@ pub const TbdV4 = struct {
     objc_eh_types: ?[]const []const u8,
 };
 
-pub const Tbd = union(enum) {
-    v3: TbdV3,
-    v4: TbdV4,
-
-    pub fn currentVersion(self: Tbd) ?VersionField {
-        return switch (self) {
-            .v3 => |v3| v3.current_version,
-            .v4 => |v4| v4.current_version,
-        };
-    }
-
-    pub fn compatibilityVersion(self: Tbd) ?VersionField {
-        return switch (self) {
-            .v3 => |v3| v3.compatibility_version,
-            .v4 => |v4| v4.compatibility_version,
-        };
-    }
-
-    pub fn installName(self: Tbd) []const u8 {
-        return switch (self) {
-            .v3 => |v3| v3.install_name,
-            .v4 => |v4| v4.install_name,
-        };
-    }
-};
-
 pub const LibStub = struct {
-    /// Underlying memory for stub's contents.
-    yaml: Yaml,
+    arena: std.heap.ArenaAllocator,
+    inner: union(enum) {
+        v3_list: []const TbdV3,
+        v3: TbdV3,
+        v4_list: []const TbdV4,
+        v4: TbdV4,
+    },
 
-    /// Typed contents of the tbd file.
-    inner: []Tbd,
-
-    pub fn loadFromFile(allocator: Allocator, file: fs.File) !LibStub {
+    pub fn loadFromFile(gpa: Allocator, file: fs.File) !LibStub {
         const filesize = blk: {
             const stat = file.stat() catch break :blk std.math.maxInt(u32);
             break :blk @min(stat.size, std.math.maxInt(u32));
         };
-        const source = try allocator.alloc(u8, filesize);
-        defer allocator.free(source);
+        const source = try gpa.alloc(u8, filesize);
+        defer gpa.free(source);
         const amt = try file.preadAll(source, 0);
         if (amt != filesize) return error.InputOutput;
 
+        var yaml: Yaml = .{ .source = source };
+        defer yaml.deinit(gpa);
+        try yaml.load(gpa);
+
+        var arena = std.heap.ArenaAllocator.init(gpa);
+        errdefer arena.deinit();
+
         var lib_stub = LibStub{
-            .yaml = try Yaml.load(allocator, source),
+            .arena = arena,
             .inner = undefined,
         };
 
         // TODO revisit this logic in the hope of simplifying it.
-        lib_stub.inner = blk: {
+        blk: {
             err: {
                 log.debug("trying to parse as []TbdV4", .{});
-                const inner = lib_stub.yaml.parse([]TbdV4) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, inner.len);
-                for (inner, 0..) |doc, i| {
-                    out[i] = .{ .v4 = doc };
-                }
-                break :blk out;
+                const inner = yaml.parse(arena.allocator(), []TbdV4) catch break :err;
+                lib_stub.inner = .{ .v4_list = inner };
+                break :blk;
             }
 
             err: {
                 log.debug("trying to parse as TbdV4", .{});
-                const inner = lib_stub.yaml.parse(TbdV4) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, 1);
-                out[0] = .{ .v4 = inner };
-                break :blk out;
+                const inner = yaml.parse(arena.allocator(), TbdV4) catch break :err;
+                lib_stub.inner = .{ .v4 = inner };
+                break :blk;
             }
 
             err: {
                 log.debug("trying to parse as []TbdV3", .{});
-                const inner = lib_stub.yaml.parse([]TbdV3) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, inner.len);
-                for (inner, 0..) |doc, i| {
-                    out[i] = .{ .v3 = doc };
-                }
-                break :blk out;
+                const inner = yaml.parse(arena.allocator(), []TbdV3) catch break :err;
+                lib_stub.inner = .{ .v3_list = inner };
+                break :blk;
             }
 
             err: {
                 log.debug("trying to parse as TbdV3", .{});
-                const inner = lib_stub.yaml.parse(TbdV3) catch break :err;
-                var out = try lib_stub.yaml.arena.allocator().alloc(Tbd, 1);
-                out[0] = .{ .v3 = inner };
-                break :blk out;
+                const inner = yaml.parse(arena.allocator(), TbdV3) catch break :err;
+                lib_stub.inner = .{ .v3 = inner };
+                break :blk;
             }
 
             return error.NotLibStub;
-        };
+        }
 
         return lib_stub;
     }
 
     pub fn deinit(self: *LibStub) void {
-        self.yaml.deinit();
+        self.arena.deinit();
     }
 };

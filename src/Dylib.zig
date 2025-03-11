@@ -290,21 +290,29 @@ fn parseTrie(self: *Dylib, data: []const u8, macho_file: *MachO) !void {
 }
 
 fn parseTbd(self: *Dylib, macho_file: *MachO) !void {
+    switch (self.lib_stub.?.inner) {
+        .v3_list => |stubs| try self.parseTbdV3(stubs, macho_file),
+        .v3 => |stub| try self.parseTbdV3(&.{stub}, macho_file),
+        .v4_list => |stubs| try self.parseTbdV4(stubs, macho_file),
+        .v4 => |stub| try self.parseTbdV4(&.{stub}, macho_file),
+    }
+}
+
+fn parseTbdV4(self: *Dylib, stubs: []const TbdV4, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
     const gpa = macho_file.allocator;
 
-    log.debug("parsing dylib from stub", .{});
+    log.debug("parsing dylib from TBDv4 stubs", .{});
 
-    const lib_stub = self.lib_stub.?;
-    const umbrella_lib = lib_stub.inner[0];
+    const umbrella_lib = stubs[0];
 
     {
-        var id = try Id.default(gpa, umbrella_lib.installName());
-        if (umbrella_lib.currentVersion()) |version| {
+        var id = try Id.default(gpa, umbrella_lib.install_name);
+        if (umbrella_lib.current_version) |version| {
             try id.parseCurrentVersion(version);
         }
-        if (umbrella_lib.compatibilityVersion()) |version| {
+        if (umbrella_lib.compatibility_version) |version| {
             try id.parseCompatibilityVersion(version);
         }
         self.id = id;
@@ -313,7 +321,7 @@ fn parseTbd(self: *Dylib, macho_file: *MachO) !void {
     var umbrella_libs = std.StringHashMap(void).init(gpa);
     defer umbrella_libs.deinit();
 
-    log.debug("  (install_name '{s}')", .{umbrella_lib.installName()});
+    log.debug("  (install_name '{s}')", .{umbrella_lib.install_name});
 
     const cpu_arch = macho_file.options.cpu_arch.?;
     const platform: MachO.Options.Platform = macho_file.options.platform orelse .{
@@ -324,183 +332,122 @@ fn parseTbd(self: *Dylib, macho_file: *MachO) !void {
     var matcher = try TargetMatcher.init(gpa, cpu_arch, platform.platform);
     defer matcher.deinit();
 
-    for (lib_stub.inner, 0..) |elem, stub_index| {
-        if (!(try matcher.matchesTargetTbd(elem))) continue;
+    for (stubs, 0..) |stub, stub_index| {
+        if (!matcher.matchesTarget(stub.targets)) continue;
 
         if (stub_index > 0) {
             // TODO I thought that we could switch on presence of `parent-umbrella` map;
             // however, turns out `libsystem_notify.dylib` is fully reexported by `libSystem.dylib`
             // BUT does not feature a `parent-umbrella` map as the only sublib. Apple's bug perhaps?
-            try umbrella_libs.put(elem.installName(), {});
+            try umbrella_libs.put(stub.install_name, {});
         }
 
-        switch (elem) {
-            .v3 => |stub| {
-                if (stub.exports) |exports| {
-                    for (exports) |exp| {
-                        if (!matcher.matchesArch(exp.archs)) continue;
+        if (stub.exports) |exports| {
+            for (exports) |exp| {
+                if (!matcher.matchesTarget(exp.targets)) continue;
 
-                        if (exp.symbols) |symbols| {
-                            for (symbols) |sym_name| {
-                                try self.exports.append(gpa, .{
-                                    .name = try self.addString(gpa, sym_name),
-                                    .flags = .{},
-                                });
-                            }
-                        }
-
-                        if (exp.weak_symbols) |symbols| {
-                            for (symbols) |sym_name| {
-                                try self.exports.append(gpa, .{
-                                    .name = try self.addString(gpa, sym_name),
-                                    .flags = .{ .weak = true },
-                                });
-                            }
-                        }
-
-                        if (exp.objc_classes) |objc_classes| {
-                            for (objc_classes) |class_name| {
-                                try self.addObjCClass(gpa, class_name);
-                            }
-                        }
-
-                        if (exp.objc_ivars) |objc_ivars| {
-                            for (objc_ivars) |ivar| {
-                                try self.addObjCIVar(gpa, ivar);
-                            }
-                        }
-
-                        if (exp.objc_eh_types) |objc_eh_types| {
-                            for (objc_eh_types) |eht| {
-                                try self.addObjCEhType(gpa, eht);
-                            }
-                        }
-
-                        if (exp.re_exports) |re_exports| {
-                            for (re_exports) |lib| {
-                                if (umbrella_libs.contains(lib)) continue;
-
-                                log.debug("  (found re-export '{s}')", .{lib});
-
-                                const dep_id = try Id.default(gpa, lib);
-                                try self.dependents.append(gpa, dep_id);
-                            }
-                        }
-                    }
-                }
-            },
-            .v4 => |stub| {
-                if (stub.exports) |exports| {
-                    for (exports) |exp| {
-                        if (!matcher.matchesTarget(exp.targets)) continue;
-
-                        if (exp.symbols) |symbols| {
-                            for (symbols) |sym_name| {
-                                try self.exports.append(gpa, .{
-                                    .name = try self.addString(gpa, sym_name),
-                                    .flags = .{},
-                                });
-                            }
-                        }
-
-                        if (exp.weak_symbols) |symbols| {
-                            for (symbols) |sym_name| {
-                                try self.exports.append(gpa, .{
-                                    .name = try self.addString(gpa, sym_name),
-                                    .flags = .{ .weak = true },
-                                });
-                            }
-                        }
-
-                        if (exp.objc_classes) |classes| {
-                            for (classes) |sym_name| {
-                                try self.addObjCClass(gpa, sym_name);
-                            }
-                        }
-
-                        if (exp.objc_ivars) |objc_ivars| {
-                            for (objc_ivars) |ivar| {
-                                try self.addObjCIVar(gpa, ivar);
-                            }
-                        }
-
-                        if (exp.objc_eh_types) |objc_eh_types| {
-                            for (objc_eh_types) |eht| {
-                                try self.addObjCEhType(gpa, eht);
-                            }
-                        }
+                if (exp.symbols) |symbols| {
+                    for (symbols) |sym_name| {
+                        try self.exports.append(gpa, .{
+                            .name = try self.addString(gpa, sym_name),
+                            .flags = .{},
+                        });
                     }
                 }
 
-                if (stub.reexports) |reexports| {
-                    for (reexports) |reexp| {
-                        if (!matcher.matchesTarget(reexp.targets)) continue;
-
-                        if (reexp.symbols) |symbols| {
-                            for (symbols) |sym_name| {
-                                try self.exports.append(gpa, .{
-                                    .name = try self.addString(gpa, sym_name),
-                                    .flags = .{},
-                                });
-                            }
-                        }
-
-                        if (reexp.weak_symbols) |symbols| {
-                            for (symbols) |sym_name| {
-                                try self.exports.append(gpa, .{
-                                    .name = try self.addString(gpa, sym_name),
-                                    .flags = .{ .weak = true },
-                                });
-                            }
-                        }
-
-                        if (reexp.objc_classes) |classes| {
-                            for (classes) |sym_name| {
-                                try self.addObjCClass(gpa, sym_name);
-                            }
-                        }
-
-                        if (reexp.objc_ivars) |objc_ivars| {
-                            for (objc_ivars) |ivar| {
-                                try self.addObjCIVar(gpa, ivar);
-                            }
-                        }
-
-                        if (reexp.objc_eh_types) |objc_eh_types| {
-                            for (objc_eh_types) |eht| {
-                                try self.addObjCEhType(gpa, eht);
-                            }
-                        }
+                if (exp.weak_symbols) |symbols| {
+                    for (symbols) |sym_name| {
+                        try self.exports.append(gpa, .{
+                            .name = try self.addString(gpa, sym_name),
+                            .flags = .{ .weak = true },
+                        });
                     }
                 }
 
-                if (stub.objc_classes) |classes| {
+                if (exp.objc_classes) |classes| {
                     for (classes) |sym_name| {
                         try self.addObjCClass(gpa, sym_name);
                     }
                 }
 
-                if (stub.objc_ivars) |objc_ivars| {
+                if (exp.objc_ivars) |objc_ivars| {
                     for (objc_ivars) |ivar| {
                         try self.addObjCIVar(gpa, ivar);
                     }
                 }
 
-                if (stub.objc_eh_types) |objc_eh_types| {
+                if (exp.objc_eh_types) |objc_eh_types| {
                     for (objc_eh_types) |eht| {
                         try self.addObjCEhType(gpa, eht);
                     }
                 }
-            },
+            }
+        }
+
+        if (stub.reexports) |reexports| {
+            for (reexports) |reexp| {
+                if (!matcher.matchesTarget(reexp.targets)) continue;
+
+                if (reexp.symbols) |symbols| {
+                    for (symbols) |sym_name| {
+                        try self.exports.append(gpa, .{
+                            .name = try self.addString(gpa, sym_name),
+                            .flags = .{},
+                        });
+                    }
+                }
+
+                if (reexp.weak_symbols) |symbols| {
+                    for (symbols) |sym_name| {
+                        try self.exports.append(gpa, .{
+                            .name = try self.addString(gpa, sym_name),
+                            .flags = .{ .weak = true },
+                        });
+                    }
+                }
+
+                if (reexp.objc_classes) |classes| {
+                    for (classes) |sym_name| {
+                        try self.addObjCClass(gpa, sym_name);
+                    }
+                }
+
+                if (reexp.objc_ivars) |objc_ivars| {
+                    for (objc_ivars) |ivar| {
+                        try self.addObjCIVar(gpa, ivar);
+                    }
+                }
+
+                if (reexp.objc_eh_types) |objc_eh_types| {
+                    for (objc_eh_types) |eht| {
+                        try self.addObjCEhType(gpa, eht);
+                    }
+                }
+            }
+        }
+
+        if (stub.objc_classes) |classes| {
+            for (classes) |sym_name| {
+                try self.addObjCClass(gpa, sym_name);
+            }
+        }
+
+        if (stub.objc_ivars) |objc_ivars| {
+            for (objc_ivars) |ivar| {
+                try self.addObjCIVar(gpa, ivar);
+            }
+        }
+
+        if (stub.objc_eh_types) |objc_eh_types| {
+            for (objc_eh_types) |eht| {
+                try self.addObjCEhType(gpa, eht);
+            }
         }
     }
 
     // For V4, we add dependent libs in a separate pass since some stubs such as libSystem include
     // re-exports directly in the stub file.
-    for (lib_stub.inner) |elem| {
-        if (elem == .v3) continue;
-        const stub = elem.v4;
-
+    for (stubs) |stub| {
         if (stub.reexported_libraries) |reexports| {
             for (reexports) |reexp| {
                 if (!matcher.matchesTarget(reexp.targets)) continue;
@@ -512,6 +459,116 @@ fn parseTbd(self: *Dylib, macho_file: *MachO) !void {
 
                     const dep_id = try Id.default(gpa, lib);
                     try self.dependents.append(gpa, dep_id);
+                }
+            }
+        }
+    }
+}
+
+fn parseTbdV3(self: *Dylib, stubs: []const TbdV3, macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    const gpa = macho_file.allocator;
+
+    log.debug("parsing dylib from TDBv3 stub", .{});
+
+    const umbrella_lib = stubs[0];
+
+    {
+        var id = try Id.default(gpa, umbrella_lib.install_name);
+        if (umbrella_lib.current_version) |version| {
+            try id.parseCurrentVersion(version);
+        }
+        if (umbrella_lib.compatibility_version) |version| {
+            try id.parseCompatibilityVersion(version);
+        }
+        self.id = id;
+    }
+
+    var umbrella_libs = std.StringHashMap(void).init(gpa);
+    defer umbrella_libs.deinit();
+
+    log.debug("  (install_name '{s}')", .{umbrella_lib.install_name});
+
+    const cpu_arch = macho_file.options.cpu_arch.?;
+    const platform: MachO.Options.Platform = macho_file.options.platform orelse .{
+        .platform = .MACOS,
+        .version = .{ .value = 0 },
+    };
+
+    var matcher = try TargetMatcher.init(gpa, cpu_arch, platform.platform);
+    defer matcher.deinit();
+
+    for (stubs, 0..) |stub, stub_index| {
+        var targets = std.ArrayList([]const u8).init(gpa);
+        defer {
+            for (targets.items) |target| {
+                gpa.free(target);
+            }
+            targets.deinit();
+        }
+        for (stub.archs) |arch| {
+            const target = try std.fmt.allocPrint(gpa, "{s}-{s}", .{ arch, stub.platform });
+            try targets.append(target);
+        }
+        if (!matcher.matchesTarget(targets.items)) continue;
+
+        if (stub_index > 0) {
+            // TODO I thought that we could switch on presence of `parent-umbrella` map;
+            // however, turns out `libsystem_notify.dylib` is fully reexported by `libSystem.dylib`
+            // BUT does not feature a `parent-umbrella` map as the only sublib. Apple's bug perhaps?
+            try umbrella_libs.put(stub.install_name, {});
+        }
+
+        if (stub.exports) |exports| {
+            for (exports) |exp| {
+                if (!matcher.matchesArch(exp.archs)) continue;
+
+                if (exp.symbols) |symbols| {
+                    for (symbols) |sym_name| {
+                        try self.exports.append(gpa, .{
+                            .name = try self.addString(gpa, sym_name),
+                            .flags = .{},
+                        });
+                    }
+                }
+
+                if (exp.weak_symbols) |symbols| {
+                    for (symbols) |sym_name| {
+                        try self.exports.append(gpa, .{
+                            .name = try self.addString(gpa, sym_name),
+                            .flags = .{ .weak = true },
+                        });
+                    }
+                }
+
+                if (exp.objc_classes) |objc_classes| {
+                    for (objc_classes) |class_name| {
+                        try self.addObjCClass(gpa, class_name);
+                    }
+                }
+
+                if (exp.objc_ivars) |objc_ivars| {
+                    for (objc_ivars) |ivar| {
+                        try self.addObjCIVar(gpa, ivar);
+                    }
+                }
+
+                if (exp.objc_eh_types) |objc_eh_types| {
+                    for (objc_eh_types) |eht| {
+                        try self.addObjCEhType(gpa, eht);
+                    }
+                }
+
+                if (exp.re_exports) |re_exports| {
+                    for (re_exports) |lib| {
+                        if (umbrella_libs.contains(lib)) continue;
+
+                        log.debug("  (found re-export '{s}')", .{lib});
+
+                        const dep_id = try Id.default(gpa, lib);
+                        try self.dependents.append(gpa, dep_id);
+                    }
                 }
             }
         }
@@ -696,14 +753,14 @@ pub fn getSymbolRef(self: Dylib, index: Symbol.Index, macho_file: *MachO) MachO.
 }
 
 pub fn addSymbolExtra(self: *Dylib, allocator: Allocator, extra: Symbol.Extra) !u32 {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     try self.symbols_extra.ensureUnusedCapacity(allocator, fields.len);
     return self.addSymbolExtraAssumeCapacity(extra);
 }
 
 fn addSymbolExtraAssumeCapacity(self: *Dylib, extra: Symbol.Extra) u32 {
     const index = @as(u32, @intCast(self.symbols_extra.items.len));
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields) |field| {
         self.symbols_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
@@ -714,7 +771,7 @@ fn addSymbolExtraAssumeCapacity(self: *Dylib, extra: Symbol.Extra) u32 {
 }
 
 pub fn getSymbolExtra(self: Dylib, index: u32) Symbol.Extra {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     var i: usize = index;
     var result: Symbol.Extra = undefined;
     inline for (fields) |field| {
@@ -728,7 +785,7 @@ pub fn getSymbolExtra(self: Dylib, index: u32) Symbol.Extra {
 }
 
 pub fn setSymbolExtra(self: *Dylib, index: u32, extra: Symbol.Extra) void {
-    const fields = @typeInfo(Symbol.Extra).Struct.fields;
+    const fields = @typeInfo(Symbol.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.symbols_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),
@@ -874,25 +931,6 @@ pub const TargetMatcher = struct {
         }
         return false;
     }
-
-    pub fn matchesTargetTbd(self: TargetMatcher, tbd: Tbd) !bool {
-        var arena = std.heap.ArenaAllocator.init(self.allocator);
-        defer arena.deinit();
-
-        const targets = switch (tbd) {
-            .v3 => |v3| blk: {
-                var targets = std.ArrayList([]const u8).init(arena.allocator());
-                for (v3.archs) |arch| {
-                    const target = try std.fmt.allocPrint(arena.allocator(), "{s}-{s}", .{ arch, v3.platform });
-                    try targets.append(target);
-                }
-                break :blk targets.items;
-            },
-            .v4 => |v4| v4.targets,
-        };
-
-        return self.matchesTarget(targets);
-    }
 };
 
 pub const Id = struct {
@@ -1007,4 +1045,5 @@ const LibStub = tapi.LibStub;
 const LoadCommandIterator = macho.LoadCommandIterator;
 const MachO = @import("MachO.zig");
 const Symbol = @import("Symbol.zig");
-const Tbd = tapi.Tbd;
+const TbdV3 = tapi.TbdV3;
+const TbdV4 = tapi.TbdV4;

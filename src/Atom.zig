@@ -116,7 +116,7 @@ const AddExtraOpts = struct {
 pub fn addExtra(atom: *Atom, opts: AddExtraOpts, macho_file: *MachO) void {
     const file = atom.getFile(macho_file);
     var extra = file.getAtomExtra(atom.extra);
-    inline for (@typeInfo(@TypeOf(opts)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(opts)).@"struct".fields) |field| {
         if (@field(opts, field.name)) |x| {
             @field(extra, field.name) = x;
         }
@@ -136,10 +136,10 @@ pub fn initOutputSection(sect: macho.section_64, macho_file: *MachO) !u8 {
     if (macho_file.options.relocatable) {
         const osec = macho_file.getSectionByName(sect.segName(), sect.sectName()) orelse
             try macho_file.addSection(
-            sect.segName(),
-            sect.sectName(),
-            .{ .flags = sect.flags },
-        );
+                sect.segName(),
+                sect.sectName(),
+                .{ .flags = sect.flags },
+            );
         return osec;
     }
 
