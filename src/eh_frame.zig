@@ -133,15 +133,15 @@ pub const Cie = struct {
 pub const Fde = struct {
     /// Includes 4byte size cell.
     offset: u32,
-    out_offset: u32 = 0,
+    atom: Atom.Index,
+    file: File.Index,
     size: u32,
     cie: Cie.Index,
-    atom: Atom.Index = 0,
+    out_offset: u32 = 0,
     atom_offset: u32 = 0,
-    lsda: Atom.Index = 0,
+    lsda: Atom.OptionalIndex = .none,
     lsda_offset: u32 = 0,
     lsda_ptr_offset: u32 = 0,
-    file: File.Index = 0,
     alive: bool = true,
 
     pub fn parse(fde: *Fde, macho_file: *MachO) !void {
@@ -155,7 +155,7 @@ pub const Fde = struct {
         // Parse target atom index
         const pc_begin = std.mem.readInt(i64, data[8..][0..8], .little);
         const taddr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + 8)) + pc_begin);
-        fde.atom = object.findAtom(taddr) orelse {
+        fde.atom = object.findAtom(taddr).unwrap() orelse {
             macho_file.fatal("{}: {s},{s}: 0x{x}: invalid function reference in FDE", .{
                 object.fmtPath(), sect.segName(), sect.sectName(), fde.offset + 8,
             });
@@ -194,12 +194,13 @@ pub const Fde = struct {
                 .p64 => try reader.readInt(i64, .little),
             };
             const lsda_addr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + fde.lsda_ptr_offset)) + lsda_ptr);
-            fde.lsda = object.findAtom(lsda_addr) orelse {
+            const lsda = object.findAtom(lsda_addr).unwrap() orelse {
                 macho_file.fatal("{}: {s},{s}: 0x{x}: invalid LSDA reference in FDE", .{
                     object.fmtPath(), sect.segName(), sect.sectName(), fde.offset + fde.lsda_ptr_offset,
                 });
                 return error.ParseFailed;
             };
+            fde.lsda = lsda.toOptional();
             const lsda_atom = fde.getLsdaAtom(macho_file).?;
             fde.lsda_offset = @intCast(lsda_addr - lsda_atom.getInputAddress(macho_file));
         }
@@ -225,11 +226,12 @@ pub const Fde = struct {
     }
 
     pub fn getAtom(fde: Fde, macho_file: *MachO) *Atom {
-        return fde.getObject(macho_file).getAtom(fde.atom).?;
+        return fde.getObject(macho_file).getAtom(fde.atom);
     }
 
     pub fn getLsdaAtom(fde: Fde, macho_file: *MachO) ?*Atom {
-        return fde.getObject(macho_file).getAtom(fde.lsda);
+        const atom_index = fde.lsda.unwrap() orelse return null;
+        return fde.getObject(macho_file).getAtom(atom_index);
     }
 
     pub fn format(

@@ -51,8 +51,9 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
 
     // Collect all unwind records
     for (macho_file.sections.items(.atoms)) |atoms| {
-        for (atoms.items) |ref| {
-            const atom = ref.getAtom(macho_file) orelse continue;
+        for (atoms.items) |opt_ref| {
+            const ref = opt_ref.unwrap() orelse continue;
+            const atom = ref.getAtom(macho_file);
             if (!atom.alive.load(.seq_cst)) continue;
             const recs = atom.getUnwindRecords(macho_file);
             const file = atom.getFile(macho_file);
@@ -70,7 +71,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
         if (rec.getFde(macho_file)) |fde| {
             rec.enc.setDwarfSectionOffset(@intCast(fde.out_offset));
             if (fde.getLsdaAtom(macho_file)) |lsda| {
-                rec.lsda = lsda.atom_index;
+                rec.lsda = lsda.atom_index.toOptional();
                 rec.lsda_offset = fde.lsda_offset;
                 rec.enc.setHasLsda(true);
             }
@@ -460,15 +461,15 @@ pub const Encoding = extern struct {
 };
 
 pub const Record = struct {
+    atom: Atom.Index,
+    file: File.Index,
+    atom_offset: u32 = 0,
     length: u32 = 0,
     enc: Encoding = .{ .enc = 0 },
-    atom: Atom.Index = 0,
-    atom_offset: u32 = 0,
-    lsda: Atom.Index = 0,
+    lsda: Atom.OptionalIndex = .none,
     lsda_offset: u32 = 0,
     personality: ?Symbol.Index = null, // TODO make this zero-is-null
     fde: Fde.Index = 0, // TODO actually make FDE at 0 an invalid FDE
-    file: File.Index = 0,
     alive: bool = true,
 
     pub fn getObject(rec: Record, macho_file: *MachO) *Object {
@@ -476,11 +477,12 @@ pub const Record = struct {
     }
 
     pub fn getAtom(rec: Record, macho_file: *MachO) *Atom {
-        return rec.getObject(macho_file).getAtom(rec.atom).?;
+        return rec.getObject(macho_file).getAtom(rec.atom);
     }
 
     pub fn getLsdaAtom(rec: Record, macho_file: *MachO) ?*Atom {
-        return rec.getObject(macho_file).getAtom(rec.lsda);
+        const atom_index = rec.lsda.unwrap() orelse return null;
+        return rec.getObject(macho_file).getAtom(atom_index);
     }
 
     pub fn getPersonality(rec: Record, macho_file: *MachO) ?*Symbol {

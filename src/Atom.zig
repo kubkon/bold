@@ -1,11 +1,14 @@
-/// Address allocated for this Atom.
-value: u64 = 0,
-
-/// Name of this Atom.
-name: MachO.String = .{},
-
 /// Index into linker's input file table.
-file: File.Index = 0,
+file: File.Index,
+
+/// Index of this atom in the linker's atoms table.
+atom_index: Index,
+
+extra: u32,
+
+/// Offset within the parent section pointed to by n_sect.
+/// off + size <= parent section size.
+off: u64 = 0,
 
 /// Size of this atom
 size: u64 = 0,
@@ -16,23 +19,20 @@ alignment: u32 = 0,
 /// Index of the input section.
 n_sect: u32 = 0,
 
+/// Address allocated for this Atom.
+value: u64 = 0,
+
+/// Name of this Atom.
+name: MachO.String = .{},
+
 /// Index of the output section.
 out_n_sect: u8 = 0,
-
-/// Offset within the parent section pointed to by n_sect.
-/// off + size <= parent section size.
-off: u64 = 0,
-
-/// Index of this atom in the linker's atoms table.
-atom_index: Index = 0,
 
 /// Specifies whether this atom is alive or has been garbage collected.
 alive: std.atomic.Value(bool) = std.atomic.Value(bool).init(true),
 
 /// Specifies if the atom has been visited during garbage collection.
 visited: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
-
-extra: u32 = 0,
 
 pub fn getName(self: Atom, macho_file: *MachO) [:0]const u8 {
     return switch (self.getFile(macho_file)) {
@@ -43,6 +43,10 @@ pub fn getName(self: Atom, macho_file: *MachO) [:0]const u8 {
 
 pub fn getFile(self: Atom, macho_file: *MachO) File {
     return macho_file.getFile(self.file).?;
+}
+
+pub fn toRef(self: Atom) Ref {
+    return self.atom_index.toRef(self.file);
 }
 
 pub fn getInputSection(self: Atom, macho_file: *MachO) macho.section_64 {
@@ -308,9 +312,9 @@ fn reportUndefSymbol(self: Atom, rel: Relocation, macho_file: *MachO) !bool {
         const gpa = macho_file.allocator;
         const gop = try macho_file.undefs.getOrPut(gpa, file.getGlobals()[rel.target]);
         if (!gop.found_existing) {
-            gop.value_ptr.* = .{ .refs = .{} };
+            gop.value_ptr.* = .{ .atom_refs = .{} };
         }
-        try gop.value_ptr.refs.append(gpa, .{ .index = self.atom_index, .file = self.file });
+        try gop.value_ptr.atom_refs.append(gpa, self.atom_index.toRef(self.file));
         return true;
     }
 
@@ -861,7 +865,61 @@ fn format2(
     }
 }
 
-pub const Index = u32;
+pub const Index = enum(u32) {
+    _,
+
+    pub fn toOptional(index: Index) OptionalIndex {
+        const result: OptionalIndex = @enumFromInt(@intFromEnum(index));
+        assert(result != .none);
+        return result;
+    }
+
+    pub fn toRef(index: Index, file: File.Index) Ref {
+        const result: Ref = @enumFromInt(@intFromEnum(index) | @as(u64, @intCast(file)) << 32);
+        assert(result != .none);
+        return result;
+    }
+};
+
+pub const OptionalIndex = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn unwrap(opt: OptionalIndex) ?Index {
+        if (opt == .none) return null;
+        return @enumFromInt(@intFromEnum(opt));
+    }
+};
+
+pub const Ref = enum(u64) {
+    none = std.math.maxInt(u64),
+    _,
+
+    pub fn unwrap(ref: Ref) ?UnwrappedRef {
+        if (ref == .none) return null;
+        const raw = @intFromEnum(ref);
+        const atom_index: Index = @enumFromInt(@as(u32, @truncate(raw)));
+        const file_index: File.Index = @truncate(raw >> 32);
+        return .{ .atom = atom_index, .file = file_index };
+    }
+
+    pub fn eql(ref: Ref, other: Ref) bool {
+        return @intFromEnum(ref) == @intFromEnum(other);
+    }
+
+    pub fn lessThan(ref: Ref, other: Ref) bool {
+        return @intFromEnum(ref) < @intFromEnum(other);
+    }
+};
+
+pub const UnwrappedRef = struct {
+    atom: Index,
+    file: File.Index,
+
+    pub fn getAtom(ref: UnwrappedRef, macho_file: *MachO) *Atom {
+        return macho_file.getFile(ref.file).?.getAtom(ref.atom);
+    }
+};
 
 pub const Extra = struct {
     /// Index of the range extension thunk of this atom.

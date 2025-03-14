@@ -11,7 +11,7 @@ file: File.Index = 0,
 
 /// Reference to Atom containing this symbol if any.
 /// Use `getAtom` to get the pointer to the atom.
-atom_ref: MachO.Ref = .{ .index = 0, .file = 0 },
+atom_ref: Atom.Ref = .none,
 
 /// Assigned output section index for this symbol.
 out_n_sect: u8 = 0,
@@ -62,7 +62,8 @@ pub fn getName(symbol: Symbol, macho_file: *MachO) [:0]const u8 {
 }
 
 pub fn getAtom(symbol: Symbol, macho_file: *MachO) ?*Atom {
-    return symbol.atom_ref.getAtom(macho_file);
+    const ref = symbol.atom_ref.unwrap() orelse return null;
+    return ref.getAtom(macho_file);
 }
 
 pub fn getOutputSectionIndex(symbol: Symbol, macho_file: *MachO) u8 {

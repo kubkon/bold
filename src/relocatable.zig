@@ -77,7 +77,7 @@ fn initOutputSections(macho_file: *MachO) !void {
     for (macho_file.objects.items) |index| {
         const file = macho_file.getFile(index).?;
         for (file.getAtoms()) |atom_index| {
-            const atom = file.getAtom(atom_index) orelse continue;
+            const atom = file.getAtom(atom_index);
             if (!atom.alive.load(.seq_cst)) continue;
             atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(macho_file), macho_file);
         }
@@ -153,9 +153,9 @@ fn calcSectionSizeWorker(macho_file: *MachO, sect_id: u8) void {
     defer tracy.end();
 
     const doWork = struct {
-        fn doWork(mfile: *MachO, header: *macho.section_64, atoms: []const MachO.Ref) !void {
+        fn doWork(mfile: *MachO, header: *macho.section_64, atoms: []const Atom.Ref) !void {
             for (atoms) |ref| {
-                const atom = ref.getAtom(mfile).?;
+                const atom = ref.unwrap().?.getAtom(mfile);
                 const p2align = atom.alignment;
                 const atom_alignment = try math.powi(u32, 2, p2align);
                 const offset = mem.alignForward(u64, header.size, atom_alignment);

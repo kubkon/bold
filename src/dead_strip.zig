@@ -26,7 +26,7 @@ fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho
         }
 
         for (object.getAtoms()) |atom_index| {
-            const atom = object.getAtom(atom_index) orelse continue;
+            const atom = object.getAtom(atom_index);
             const isec = atom.getInputSection(macho_file);
             switch (isec.type()) {
                 macho.S_MOD_INIT_FUNC_POINTERS,
@@ -98,7 +98,7 @@ fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
         for (objects) |index| {
             const file = macho_file.getFile(index).?;
             for (file.getAtoms()) |atom_index| {
-                const atom = file.getAtom(atom_index) orelse continue;
+                const atom = file.getAtom(atom_index);
                 const isec = atom.getInputSection(macho_file);
                 if (isec.isDontDeadStripIfReferencesLive() and
                     !(mem.eql(u8, isec.sectName(), "__eh_frame") or
@@ -179,7 +179,7 @@ fn prune(objects: []const File.Index, macho_file: *MachO) void {
     for (objects) |index| {
         const file = macho_file.getFile(index).?;
         for (file.getAtoms()) |atom_index| {
-            const atom = file.getAtom(atom_index) orelse continue;
+            const atom = file.getAtom(atom_index);
             if (!atom.visited.load(.seq_cst)) {
                 if (atom.alive.cmpxchgStrong(true, false, .seq_cst, .seq_cst) == null) {
                     atom.markUnwindRecordsDead(macho_file);

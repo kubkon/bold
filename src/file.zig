@@ -94,7 +94,7 @@ pub const File = union(enum) {
         return base + (file.getIndex() << 24);
     }
 
-    pub fn getAtom(file: File, atom_index: Atom.Index) ?*Atom {
+    pub fn getAtom(file: File, atom_index: Atom.Index) *Atom {
         return switch (file) {
             .dylib => unreachable,
             inline else => |x| x.getAtom(atom_index),
@@ -207,7 +207,7 @@ pub const File = union(enum) {
         const tracy = trace(@src());
         defer tracy.end();
         for (file.getAtoms()) |atom_index| {
-            const atom = file.getAtom(atom_index) orelse continue;
+            const atom = file.getAtom(atom_index);
             if (!atom.alive.load(.seq_cst)) continue;
             atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(macho_file), macho_file);
         }

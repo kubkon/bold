@@ -1309,15 +1309,15 @@ fn reportUndefs(self: *MachO) !void {
     keys.appendSliceAssumeCapacity(self.undefs.keys());
     self.sortGlobalSymbolsByName(keys.items);
 
-    const refLessThan = struct {
-        fn lessThan(ctx: void, lhs: Ref, rhs: Ref) bool {
+    const atomRefLessThan = struct {
+        fn lessThan(ctx: void, lhs: Atom.Ref, rhs: Atom.Ref) bool {
             _ = ctx;
             return lhs.lessThan(rhs);
         }
     }.lessThan;
 
     for (self.undefs.values()) |*undefs| switch (undefs.*) {
-        .refs => |refs| mem.sort(Ref, refs.items, {}, refLessThan),
+        .atom_refs => |refs| mem.sort(Atom.Ref, refs.items, {}, atomRefLessThan),
         else => {},
     };
 
@@ -1326,7 +1326,7 @@ fn reportUndefs(self: *MachO) !void {
         const notes = self.undefs.get(key).?;
         const nnotes = nnotes: {
             const nnotes = switch (notes) {
-                .refs => |refs| refs.items.len,
+                .atom_refs => |refs| refs.items.len,
                 else => 1,
             };
             break :nnotes @min(nnotes, max_notes) + @intFromBool(nnotes > max_notes);
@@ -1352,12 +1352,12 @@ fn reportUndefs(self: *MachO) !void {
             .force_undefined => try err.addNote("referenced with linker flag -u", .{}),
             .entry => try err.addNote("referenced with linker flag -e", .{}),
             .dyld_stub_binder, .objc_msgsend => try err.addNote("referenced implicitly", .{}),
-            .refs => |refs| {
+            .atom_refs => |refs| {
                 var inote: usize = 0;
                 while (inote < @min(refs.items.len, max_notes)) : (inote += 1) {
-                    const ref = refs.items[inote];
+                    const ref = refs.items[inote].unwrap().?;
                     const file = self.getFile(ref.file).?;
-                    const atom = ref.getAtom(self).?;
+                    const atom = file.getAtom(ref.atom);
                     try err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
                 }
 
@@ -1579,14 +1579,14 @@ pub fn sortSections(self: *MachO) !void {
     for (self.objects.items) |index| {
         const file = self.getFile(index).?;
         for (file.getAtoms()) |atom_index| {
-            const atom = file.getAtom(atom_index) orelse continue;
+            const atom = file.getAtom(atom_index);
             if (!atom.alive.load(.seq_cst)) continue;
             atom.out_n_sect = backlinks[atom.out_n_sect];
         }
     }
     if (self.getInternalObject()) |object| {
         for (object.getAtoms()) |atom_index| {
-            const atom = object.getAtom(atom_index) orelse continue;
+            const atom = object.getAtom(atom_index);
             if (!atom.alive.load(.seq_cst)) continue;
             atom.out_n_sect = backlinks[atom.out_n_sect];
         }
@@ -1616,18 +1616,18 @@ pub fn addAtomsToSections(self: *MachO) !void {
     for (self.objects.items) |index| {
         const file = self.getFile(index).?;
         for (file.getAtoms()) |atom_index| {
-            const atom = file.getAtom(atom_index) orelse continue;
+            const atom = file.getAtom(atom_index);
             if (!atom.alive.load(.seq_cst)) continue;
             const atoms = &self.sections.items(.atoms)[atom.out_n_sect];
-            try atoms.append(self.allocator, .{ .index = atom.atom_index, .file = index });
+            try atoms.append(self.allocator, atom.toRef());
         }
     }
     if (self.getInternalObject()) |object| {
         for (object.getAtoms()) |atom_index| {
-            const atom = object.getAtom(atom_index) orelse continue;
+            const atom = object.getAtom(atom_index);
             if (!atom.alive.load(.seq_cst)) continue;
             const atoms = &self.sections.items(.atoms)[atom.out_n_sect];
-            try atoms.append(self.allocator, .{ .index = atom.atom_index, .file = object.index });
+            try atoms.append(self.allocator, atom.toRef());
         }
     }
 }
@@ -1748,10 +1748,10 @@ fn calcSectionSizeWorker(self: *MachO, sect_id: u8) void {
         fn doWork(
             macho_file: *MachO,
             header: *macho.section_64,
-            atoms: []const Ref,
+            atoms: []const Atom.Ref,
         ) !void {
             for (atoms) |ref| {
-                const atom = ref.getAtom(macho_file).?;
+                const atom = ref.unwrap().?.getAtom(macho_file);
                 const p2align = atom.alignment;
                 const atom_alignment = try math.powi(u32, 2, p2align);
                 const offset = mem.alignForward(u64, header.size, atom_alignment);
@@ -2843,14 +2843,14 @@ fn createThunks(self: *MachO, sect_id: u8) !void {
     }.advance;
 
     const scanRelocations = struct {
-        fn scanRelocations(thunk_index: Thunk.Index, gpa: Allocator, atoms: []const MachO.Ref, mf: *MachO) !void {
+        fn scanRelocations(thunk_index: Thunk.Index, gpa: Allocator, atoms: []const Atom.Ref, mf: *MachO) !void {
             const tr = trace(@src());
             defer tr.end();
 
             const thunk = mf.getThunk(thunk_index);
 
             for (atoms) |ref| {
-                const atom = ref.getAtom(mf).?;
+                const atom = ref.unwrap().?.getAtom(mf);
                 log.debug("atom({d}) {s}", .{ atom.atom_index, atom.getName(mf) });
                 for (atom.getRelocs(mf)) |rel| {
                     if (rel.type != .branch) continue;
@@ -2880,13 +2880,13 @@ fn createThunks(self: *MachO, sect_id: u8) !void {
     assert(atoms.len > 0);
 
     for (atoms) |ref| {
-        ref.getAtom(self).?.value = @bitCast(@as(i64, -1));
+        ref.unwrap().?.getAtom(self).value = @bitCast(@as(i64, -1));
     }
 
     var i: usize = 0;
     while (i < atoms.len) {
         const start = i;
-        const start_atom = atoms[start].getAtom(self).?;
+        const start_atom = atoms[start].unwrap().?.getAtom(self);
         assert(start_atom.alive.load(.seq_cst));
         start_atom.value = try advance(header, start_atom.size, start_atom.alignment);
         i += 1;
@@ -2894,7 +2894,7 @@ fn createThunks(self: *MachO, sect_id: u8) !void {
         while (i < atoms.len and
             header.size - start_atom.value < max_allowed_distance) : (i += 1)
         {
-            const atom = atoms[i].getAtom(self).?;
+            const atom = atoms[i].unwrap().?.getAtom(self);
             assert(atom.alive.load(.seq_cst));
             atom.value = try advance(header, atom.size, atom.alignment);
         }
@@ -3198,7 +3198,7 @@ pub const LiteralPool = struct {
 const Section = struct {
     header: macho.section_64,
     segment_id: u8,
-    atoms: std.ArrayListUnmanaged(Ref) = .{},
+    atoms: std.ArrayListUnmanaged(Atom.Ref) = .{},
     thunks: std.ArrayListUnmanaged(Thunk.Index) = .{},
     out: std.ArrayListUnmanaged(u8) = .{},
     relocs: std.ArrayListUnmanaged(macho.relocation_info) = .{},
@@ -3244,11 +3244,6 @@ pub const Ref = struct {
 
     pub fn getFile(ref: Ref, macho_file: *MachO) ?File {
         return macho_file.getFile(ref.file);
-    }
-
-    pub fn getAtom(ref: Ref, macho_file: *MachO) ?*Atom {
-        const file = ref.getFile(macho_file) orelse return null;
-        return file.getAtom(ref.index);
     }
 
     pub fn getSymbol(ref: Ref, macho_file: *MachO) ?*Symbol {
@@ -3367,11 +3362,11 @@ pub const UndefRefs = union(enum) {
     entry,
     dyld_stub_binder,
     objc_msgsend,
-    refs: std.ArrayListUnmanaged(Ref),
+    atom_refs: std.ArrayListUnmanaged(Atom.Ref),
 
     pub fn deinit(self: *UndefRefs, allocator: Allocator) void {
         switch (self.*) {
-            .refs => |*refs| refs.deinit(allocator),
+            .atom_refs => |*refs| refs.deinit(allocator),
             else => {},
         }
     }
