@@ -23,7 +23,7 @@ pub fn getTargetSymbol(rel: Relocation, atom: Atom, macho_file: *MachO) *Symbol 
 
 pub fn getTargetAtom(rel: Relocation, atom: Atom, macho_file: *MachO) *Atom {
     assert(rel.tag == .local);
-    return atom.getFile(macho_file).getAtom(rel.target).?;
+    return atom.getFile(macho_file).getAtom(@enumFromInt(rel.target)); // TODO: this cast should not be needed
 }
 
 pub fn getTargetAddress(rel: Relocation, atom: Atom, macho_file: *MachO) u64 {

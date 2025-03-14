@@ -44,9 +44,6 @@ pub fn deinit(self: *InternalObject, allocator: Allocator) void {
 }
 
 pub fn init(self: *InternalObject, allocator: Allocator) !void {
-    // Atom at index 0 is reserved as null atom
-    try self.atoms.append(allocator, .{});
-    try self.atoms_extra.append(allocator, 0);
     // Null byte in strtab
     try self.strtab.append(allocator, 0);
 }
@@ -246,11 +243,9 @@ pub fn addObjcMsgsendSections(self: *InternalObject, sym_name: []const u8, macho
 
 fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_file: *MachO) !Symbol.Index {
     const gpa = macho_file.allocator;
-    const atom_index = try self.addAtom(gpa);
+    const atom_index = try self.addAtom(gpa, methname.len + 1, 0);
     try self.atoms_indexes.append(gpa, atom_index);
-    const atom = self.getAtom(atom_index).?;
-    atom.size = methname.len + 1;
-    atom.alignment = 0;
+    const atom = self.getAtom(atom_index);
 
     const n_sect = try self.addSection(gpa, "__TEXT", "__objc_methname");
     const sect = &self.sections.items(.header)[n_sect];
@@ -268,7 +263,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
     const sym_index = try self.addSymbol(gpa);
     const sym = &self.symbols.items[sym_index];
     sym.name = name_str;
-    sym.atom_ref = .{ .index = atom_index, .file = self.index };
+    sym.atom_ref = atom_index.toRef(self.index);
     sym.extra = try self.addSymbolExtra(gpa, .{});
     const nlist_idx: u32 = @intCast(self.symtab.items.len);
     const nlist = try self.symtab.addOne(gpa);
@@ -287,11 +282,9 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
 
 fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index, macho_file: *MachO) !Symbol.Index {
     const gpa = macho_file.allocator;
-    const atom_index = try self.addAtom(gpa);
+    const atom_index = try self.addAtom(gpa, @sizeOf(u64), 3);
     try self.atoms_indexes.append(gpa, atom_index);
-    const atom = self.getAtom(atom_index).?;
-    atom.size = @sizeOf(u64);
-    atom.alignment = 3;
+    const atom = self.getAtom(atom_index);
 
     const n_sect = try self.addSection(gpa, "__DATA", "__objc_selrefs");
     const sect = &self.sections.items(.header)[n_sect];
@@ -321,7 +314,7 @@ fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index
 
     const sym_index = try self.addSymbol(gpa);
     const sym = &self.symbols.items[sym_index];
-    sym.atom_ref = .{ .index = atom_index, .file = self.index };
+    sym.atom_ref = atom_index.toRef(self.index);
     sym.extra = try self.addSymbolExtra(gpa, .{});
     const nlist_idx: u32 = @intCast(self.symtab.items.len);
     const nlist = try self.symtab.addOne(gpa);
@@ -409,7 +402,7 @@ pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file
     const slice = self.sections.slice();
     for (slice.items(.header), self.getAtoms()) |header, atom_index| {
         if (!Object.isPtrLiteral(header)) continue;
-        const atom = self.getAtom(atom_index).?;
+        const atom = self.getAtom(atom_index);
         const relocs = atom.getRelocs(macho_file);
         assert(relocs.len == 1);
         const rel = relocs[0];
@@ -437,7 +430,7 @@ pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *
     defer tracy.end();
 
     for (self.getAtoms()) |atom_index| {
-        const atom = self.getAtom(atom_index) orelse continue;
+        const atom = self.getAtom(atom_index);
         if (!atom.alive.load(.seq_cst)) continue;
 
         const relocs = blk: {
@@ -456,7 +449,7 @@ pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *
             const lp_index = target_atom.getExtra(macho_file).literal_pool_index;
             const lp_sym = lp.getSymbol(lp_index, macho_file);
             const lp_atom_ref = lp_sym.atom_ref;
-            if (target_atom.atom_index != lp_atom_ref.index or target_atom.file != lp_atom_ref.file) {
+            if (!target_atom.toRef().eql(lp_atom_ref)) {
                 target_sym.atom_ref = lp_atom_ref;
             }
         }
@@ -476,7 +469,7 @@ pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *
         const lp_index = atom.getExtra(macho_file).literal_pool_index;
         const lp_sym = lp.getSymbol(lp_index, macho_file);
         const lp_atom_ref = lp_sym.atom_ref;
-        if (atom.atom_index != lp_atom_ref.index or atom.file != lp_atom_ref.file) {
+        if (!atom.toRef().eql(lp_atom_ref)) {
             tsym.atom_ref = lp_atom_ref;
         }
     }
@@ -605,7 +598,7 @@ pub fn writeAtoms(self: *InternalObject, macho_file: *MachO) !void {
     defer tracy.end();
 
     for (self.getAtoms()) |atom_index| {
-        const atom = self.getAtom(atom_index) orelse continue;
+        const atom = self.getAtom(atom_index);
         if (!atom.alive.load(.seq_cst)) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
@@ -680,10 +673,12 @@ pub fn asFile(self: *InternalObject) File {
     return .{ .internal = self };
 }
 
-fn addAtom(self: *InternalObject, allocator: Allocator) !Atom.Index {
-    const atom_index: Atom.Index = @intCast(self.atoms.items.len);
+fn addAtom(self: *InternalObject, allocator: Allocator, size: u64, alignment: u32) !Atom.Index {
+    const atom_index: Atom.Index = @enumFromInt(self.atoms.items.len);
     const atom = try self.atoms.addOne(allocator);
     atom.* = .{
+        .size = size,
+        .alignment = alignment,
         .file = self.index,
         .atom_index = atom_index,
         .extra = try self.addAtomExtra(allocator, .{}),
@@ -691,10 +686,8 @@ fn addAtom(self: *InternalObject, allocator: Allocator) !Atom.Index {
     return atom_index;
 }
 
-pub fn getAtom(self: *InternalObject, atom_index: Atom.Index) ?*Atom {
-    if (atom_index == 0) return null;
-    assert(atom_index < self.atoms.items.len);
-    return &self.atoms.items[atom_index];
+pub fn getAtom(self: *InternalObject, atom_index: Atom.Index) *Atom {
+    return &self.atoms.items[@intFromEnum(atom_index)];
 }
 
 pub fn getAtoms(self: InternalObject) []const Atom.Index {
@@ -734,7 +727,6 @@ pub fn getAtomExtra(self: InternalObject, index: u32) Atom.Extra {
 }
 
 pub fn setAtomExtra(self: *InternalObject, index: u32, extra: Atom.Extra) void {
-    assert(index > 0);
     const fields = @typeInfo(Atom.Extra).@"struct".fields;
     inline for (fields, 0..) |field, i| {
         self.atoms_extra.items[index + i] = switch (field.type) {
@@ -853,7 +845,7 @@ fn formatAtoms(
     _ = options;
     try writer.writeAll("  atoms\n");
     for (ctx.self.getAtoms()) |atom_index| {
-        const atom = ctx.self.getAtom(atom_index) orelse continue;
+        const atom = ctx.self.getAtom(atom_index);
         try writer.print("    {}\n", .{atom.fmt(ctx.macho_file)});
     }
 }

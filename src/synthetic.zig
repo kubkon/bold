@@ -569,7 +569,7 @@ pub const DataInCode = struct {
             var next_dice: usize = 0;
             for (object.getAtoms()) |atom_index| {
                 if (next_dice >= dices.len) break;
-                const atom = object.getAtom(atom_index) orelse continue;
+                const atom = object.getAtom(atom_index);
                 const start_off = atom.getInputAddress(macho_file);
                 const end_off = start_off + atom.size;
                 const start_dice = next_dice;
@@ -582,7 +582,7 @@ pub const DataInCode = struct {
 
                 if (atom.alive.load(.seq_cst)) for (dices[start_dice..next_dice]) |d| {
                     dice.entries.appendAssumeCapacity(.{
-                        .atom_ref = .{ .index = atom_index, .file = index },
+                        .atom_ref = atom_index.toRef(index),
                         .offset = @intCast(d.offset - start_off),
                         .length = d.length,
                         .kind = d.kind,
@@ -600,7 +600,8 @@ pub const DataInCode = struct {
         else
             0;
         for (dice.entries.items) |entry| {
-            const atom_address = entry.atom_ref.getAtom(macho_file).?.getAddress(macho_file);
+            const ref = entry.atom_ref.unwrap().?;
+            const atom_address = ref.getAtom(macho_file).getAddress(macho_file);
             const offset = atom_address + entry.offset - base_address;
             try writer.writeStruct(macho.data_in_code_entry{
                 .offset = @intCast(offset),
@@ -611,7 +612,7 @@ pub const DataInCode = struct {
     }
 
     const Entry = struct {
-        atom_ref: MachO.Ref,
+        atom_ref: Atom.Ref,
         offset: u32,
         length: u16,
         kind: u16,
@@ -633,6 +634,7 @@ const std = @import("std");
 const trace = @import("tracy.zig").trace;
 
 const Allocator = std.mem.Allocator;
+const Atom = @import("Atom.zig");
 const MachO = @import("MachO.zig");
 const Relocation = @import("Relocation.zig");
 const Symbol = @import("Symbol.zig");

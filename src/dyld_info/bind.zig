@@ -46,7 +46,7 @@ pub const Bind = struct {
         for (objects.items) |index| {
             const file = macho_file.getFile(index).?;
             for (file.getAtoms()) |atom_index| {
-                const atom = file.getAtom(atom_index) orelse continue;
+                const atom = file.getAtom(atom_index);
                 if (!atom.alive.load(.seq_cst)) continue;
                 if (atom.getInputSection(macho_file).isZerofill()) continue;
                 const atom_addr = atom.getAddress(macho_file);
@@ -300,7 +300,7 @@ pub const WeakBind = struct {
         for (objects.items) |index| {
             const file = macho_file.getFile(index).?;
             for (file.getAtoms()) |atom_index| {
-                const atom = file.getAtom(atom_index) orelse continue;
+                const atom = file.getAtom(atom_index);
                 if (!atom.alive.load(.seq_cst)) continue;
                 if (atom.getInputSection(macho_file).isZerofill()) continue;
                 const atom_addr = atom.getAddress(macho_file);
