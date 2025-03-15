@@ -122,7 +122,9 @@ pub const Cie = struct {
         if (!cie.alive) try writer.writeAll(" : [*]");
     }
 
-    pub const Index = u32;
+    pub const Index = enum(u32) {
+        _,
+    };
 
     pub const Personality = struct {
         index: Symbol.Index = 0,
@@ -167,8 +169,8 @@ pub const Fde = struct {
         // Associate with a CIE
         const cie_ptr = std.mem.readInt(u32, data[4..8], .little);
         const cie_offset = fde.offset + 4 - cie_ptr;
-        const cie_index = for (object.cies.items, 0..) |cie, cie_index| {
-            if (cie.offset == cie_offset) break @as(Cie.Index, @intCast(cie_index));
+        const cie_index: ?Cie.Index = for (object.cies.items, 0..) |cie, cie_index| {
+            if (cie.offset == cie_offset) break @enumFromInt(cie_index);
         } else null;
         if (cie_index) |cie| {
             fde.cie = cie;
@@ -222,7 +224,7 @@ pub const Fde = struct {
 
     pub fn getCie(fde: Fde, macho_file: *MachO) *const Cie {
         const object = fde.getObject(macho_file);
-        return &object.cies.items[fde.cie];
+        return &object.cies.items[@intFromEnum(fde.cie)];
     }
 
     pub fn getAtom(fde: Fde, macho_file: *MachO) *Atom {
@@ -278,7 +280,25 @@ pub const Fde = struct {
         if (!fde.alive) try writer.writeAll(" : [*]");
     }
 
-    pub const Index = u32;
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn toOptional(index: Index) OptionalIndex {
+            const opt: OptionalIndex = @enumFromInt(@intFromEnum(index));
+            assert(opt != .none);
+            return opt;
+        }
+    };
+
+    pub const OptionalIndex = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
+
+        pub fn unwrap(opt: OptionalIndex) ?Index {
+            if (opt == .none) return null;
+            return @enumFromInt(@intFromEnum(opt));
+        }
+    };
 };
 
 pub const Iterator = struct {

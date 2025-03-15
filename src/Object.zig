@@ -1232,7 +1232,12 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
     // 3. if an atom doesn't have unwind info record but FDE is available, synthesise and tie
     // 4. if an atom doesn't have either, synthesise a null unwind info record
 
-    const Superposition = struct { atom: Atom.Index, size: u64, cu: ?UnwindInfo.Record.Index = null, fde: ?Fde.Index = null };
+    const Superposition = struct {
+        atom: Atom.Index,
+        size: u64,
+        cu: ?UnwindInfo.Record.Index = null,
+        fde: Fde.OptionalIndex = .none,
+    };
 
     var superposition = std.AutoArrayHashMap(u64, Superposition).init(allocator);
     defer superposition.deinit();
@@ -1263,12 +1268,12 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
     for (self.fdes.items, 0..) |fde, fde_index| {
         const atom = fde.getAtom(macho_file);
         const addr = atom.getInputAddress(macho_file) + fde.atom_offset;
-        superposition.getPtr(addr).?.fde = @intCast(fde_index);
+        superposition.getPtr(addr).?.fde = @as(Fde.Index, @enumFromInt(fde_index)).toOptional();
     }
 
     for (superposition.keys(), superposition.values()) |addr, meta| {
-        if (meta.fde) |fde_index| {
-            const fde = &self.fdes.items[fde_index];
+        if (meta.fde.unwrap()) |fde_index| {
+            const fde = &self.fdes.items[@intFromEnum(fde_index)];
 
             if (meta.cu) |rec_index| {
                 const rec = self.getUnwindRecord(rec_index);
@@ -1277,7 +1282,7 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
                     fde.alive = false;
                 } else {
                     // Tie FDE to unwind record
-                    rec.fde = fde_index;
+                    rec.fde = meta.fde;
                 }
             } else {
                 // Synthesise new unwind info record
@@ -1287,14 +1292,14 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
                 rec.length = @intCast(meta.size);
                 rec.atom = fde.atom;
                 rec.atom_offset = fde.atom_offset;
-                rec.fde = fde_index;
+                rec.fde = meta.fde;
                 switch (cpu_arch) {
                     .x86_64 => rec.enc.setMode(macho.UNWIND_X86_64_MODE.DWARF),
                     .aarch64 => rec.enc.setMode(macho.UNWIND_ARM64_MODE.DWARF),
                     else => unreachable,
                 }
             }
-        } else if (meta.cu == null and meta.fde == null) {
+        } else if (meta.cu == null and meta.fde == .none) {
             // Create a null record
             const rec_index = try self.addUnwindRecord(allocator);
             const rec = self.getUnwindRecord(rec_index);

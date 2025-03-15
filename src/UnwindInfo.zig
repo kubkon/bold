@@ -469,7 +469,7 @@ pub const Record = struct {
     lsda: Atom.OptionalIndex = .none,
     lsda_offset: u32 = 0,
     personality: ?Symbol.Index = null, // TODO make this zero-is-null
-    fde: Fde.Index = 0, // TODO actually make FDE at 0 an invalid FDE
+    fde: Fde.OptionalIndex = .none,
     alive: bool = true,
 
     pub fn getObject(rec: Record, macho_file: *MachO) *Object {
@@ -493,12 +493,14 @@ pub const Record = struct {
 
     pub fn getFde(rec: Record, macho_file: *MachO) ?Fde {
         if (!rec.enc.isDwarf(macho_file)) return null;
-        return rec.getObject(macho_file).fdes.items[rec.fde];
+        const fde_index = rec.fde.unwrap() orelse return null;
+        return rec.getObject(macho_file).fdes.items[@intFromEnum(fde_index)];
     }
 
     pub fn getFdePtr(rec: Record, macho_file: *MachO) ?*Fde {
         if (!rec.enc.isDwarf(macho_file)) return null;
-        return &rec.getObject(macho_file).fdes.items[rec.fde];
+        const fde_index = rec.fde.unwrap() orelse return null;
+        return &rec.getObject(macho_file).fdes.items[@intFromEnum(fde_index)];
     }
 
     pub fn getAtomAddress(rec: Record, macho_file: *MachO) u64 {
