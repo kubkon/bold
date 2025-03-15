@@ -60,7 +60,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
             try info.records.ensureUnusedCapacity(gpa, recs.len);
             for (recs) |rec| {
                 if (!file.object.getUnwindRecord(rec).alive) continue;
-                info.records.appendAssumeCapacity(.{ .record = rec, .file = file.getIndex() });
+                info.records.appendAssumeCapacity(rec.toRef(file.getIndex()));
             }
         }
     }
@@ -123,12 +123,11 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     for (info.records.items) |ref| {
         const rec = ref.getUnwindRecord(macho_file);
         const atom = rec.getAtom(macho_file);
-        log.debug("@{x}-{x} : {s} : rec({d}) : object({d}) : {}", .{
+        log.debug("@{x}-{x} : {s} : rec({d}) : {}", .{
             rec.getAtomAddress(macho_file),
             rec.getAtomAddress(macho_file) + rec.length,
             atom.getName(macho_file),
-            ref.record,
-            ref.file,
+            ref,
             rec.enc,
         });
     }
@@ -558,15 +557,20 @@ pub const Record = struct {
 
     pub const Index = enum(u32) {
         _,
+
+        pub fn toRef(index: Index, file: File.Index) Ref {
+            return @enumFromInt(@intFromEnum(index) | @as(u64, @intCast(file)) << 32);
+        }
     };
 
-    // TODO convert into MachO.Ref
-    pub const Ref = struct {
-        record: Index,
-        file: File.Index,
+    pub const Ref = enum(u64) {
+        _,
 
         pub fn getUnwindRecord(ref: Ref, macho_file: *MachO) *Record {
-            return macho_file.getFile(ref.file).?.object.getUnwindRecord(ref.record);
+            const raw = @intFromEnum(ref);
+            const rec_index: Index = @enumFromInt(@as(u32, @truncate(raw)));
+            const file_index: File.Index = @truncate(raw >> 32);
+            return macho_file.getFile(file_index).?.object.getUnwindRecord(rec_index);
         }
     };
 };
