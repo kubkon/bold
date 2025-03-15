@@ -1236,7 +1236,7 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
         atom: Atom.Index,
         size: u64,
         cu: ?UnwindInfo.Record.Index = null,
-        fde: Fde.OptionalIndex = .none,
+        fde: ?Fde.Index = null,
     };
 
     var superposition = std.AutoArrayHashMap(u64, Superposition).init(allocator);
@@ -1268,11 +1268,11 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
     for (self.fdes.items, 0..) |fde, fde_index| {
         const atom = fde.getAtom(macho_file);
         const addr = atom.getInputAddress(macho_file) + fde.atom_offset;
-        superposition.getPtr(addr).?.fde = @as(Fde.Index, @enumFromInt(fde_index)).toOptional();
+        superposition.getPtr(addr).?.fde = @enumFromInt(fde_index);
     }
 
     for (superposition.keys(), superposition.values()) |addr, meta| {
-        if (meta.fde.unwrap()) |fde_index| {
+        if (meta.fde) |fde_index| {
             const fde = &self.fdes.items[@intFromEnum(fde_index)];
 
             if (meta.cu) |rec_index| {
@@ -1282,7 +1282,7 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
                     fde.alive = false;
                 } else {
                     // Tie FDE to unwind record
-                    rec.fde = meta.fde;
+                    rec.fde = fde_index.toOptional();
                 }
             } else {
                 // Synthesise new unwind info record
@@ -1292,14 +1292,14 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
                 rec.length = @intCast(meta.size);
                 rec.atom = fde.atom;
                 rec.atom_offset = fde.atom_offset;
-                rec.fde = meta.fde;
+                rec.fde = fde_index.toOptional();
                 switch (cpu_arch) {
                     .x86_64 => rec.enc.setMode(macho.UNWIND_X86_64_MODE.DWARF),
                     .aarch64 => rec.enc.setMode(macho.UNWIND_ARM64_MODE.DWARF),
                     else => unreachable,
                 }
             }
-        } else if (meta.cu == null and meta.fde == .none) {
+        } else if (meta.cu == null and meta.fde == null) {
             // Create a null record
             const rec_index = try self.addUnwindRecord(allocator);
             const rec = self.getUnwindRecord(rec_index);
@@ -2480,15 +2480,14 @@ fn addUnwindRecord(self: *Object, allocator: Allocator) !UnwindInfo.Record.Index
 }
 
 fn addUnwindRecordAssumeCapacity(self: *Object) UnwindInfo.Record.Index {
-    const index = @as(UnwindInfo.Record.Index, @intCast(self.unwind_records.items.len));
+    const index: UnwindInfo.Record.Index = @enumFromInt(self.unwind_records.items.len);
     const rec = self.unwind_records.addOneAssumeCapacity();
     rec.* = .{ .atom = undefined, .file = self.index };
     return index;
 }
 
 pub fn getUnwindRecord(self: *Object, index: UnwindInfo.Record.Index) *UnwindInfo.Record {
-    assert(index < self.unwind_records.items.len);
-    return &self.unwind_records.items[index];
+    return &self.unwind_records.items[@intFromEnum(index)];
 }
 
 /// Caller owns the memory.

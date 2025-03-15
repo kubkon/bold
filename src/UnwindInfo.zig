@@ -556,7 +556,9 @@ pub const Record = struct {
         if (!rec.alive) try writer.writeAll(" : [*]");
     }
 
-    pub const Index = u32;
+    pub const Index = enum(u32) {
+        _,
+    };
 
     // TODO convert into MachO.Ref
     pub const Ref = struct {
