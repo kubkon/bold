@@ -484,7 +484,7 @@ fn initCstringLiterals(self: *Object, allocator: Allocator, file: File.Handle, m
             });
 
             const atom = self.getAtom(atom_index);
-            const nlist_index: u32 = @intCast(try self.symtab.addOne(allocator));
+            const nlist_index = try self.symtab.addOne(allocator);
             self.symtab.set(nlist_index, .{
                 .nlist = .{
                     .n_strx = name_str.pos,
@@ -496,7 +496,7 @@ fn initCstringLiterals(self: *Object, allocator: Allocator, file: File.Handle, m
                 .size = atom.size,
                 .atom = atom_index.toOptional(),
             });
-            atom.addExtra(.{ .literal_symbol_index = nlist_index }, macho_file);
+            atom.addExtra(.{ .literal_atom_index = atom_index.toOptional() }, macho_file);
 
             start = end;
         }
@@ -551,7 +551,7 @@ fn initFixedSizeLiterals(self: *Object, allocator: Allocator, macho_file: *MachO
             });
 
             const atom = self.getAtom(atom_index);
-            const nlist_index: u32 = @intCast(try self.symtab.addOne(allocator));
+            const nlist_index = try self.symtab.addOne(allocator);
             self.symtab.set(nlist_index, .{
                 .nlist = .{
                     .n_strx = name_str.pos,
@@ -563,7 +563,7 @@ fn initFixedSizeLiterals(self: *Object, allocator: Allocator, macho_file: *MachO
                 .size = atom.size,
                 .atom = atom_index.toOptional(),
             });
-            atom.addExtra(.{ .literal_symbol_index = nlist_index }, macho_file);
+            atom.addExtra(.{ .literal_atom_index = atom_index.toOptional() }, macho_file);
         }
     }
 }
@@ -609,7 +609,7 @@ fn initPointerLiterals(self: *Object, allocator: Allocator, macho_file: *MachO) 
             });
 
             const atom = self.getAtom(atom_index);
-            const nlist_index: u32 = @intCast(try self.symtab.addOne(allocator));
+            const nlist_index = try self.symtab.addOne(allocator);
             self.symtab.set(nlist_index, .{
                 .nlist = .{
                     .n_strx = name_str.pos,
@@ -621,7 +621,7 @@ fn initPointerLiterals(self: *Object, allocator: Allocator, macho_file: *MachO) 
                 .size = atom.size,
                 .atom = atom_index.toOptional(),
             });
-            atom.addExtra(.{ .literal_symbol_index = nlist_index }, macho_file);
+            atom.addExtra(.{ .literal_atom_index = atom_index.toOptional() }, macho_file);
         }
     }
 }
@@ -657,10 +657,9 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
                 const atom_data = data[atom.off..][0..atom.size];
                 const res = try lp.insert(gpa, header.type(), atom_data);
                 if (!res.found_existing) {
-                    res.ref.* = .{ .index = atom.getExtra(macho_file).literal_symbol_index, .file = self.index };
+                    res.ref.* = atom.getExtra(macho_file).literal_atom_index.unwrap().?.toRef(self.index);
                 } else {
-                    const lp_sym = lp.getSymbol(res.index, macho_file);
-                    const lp_atom = lp_sym.getAtom(macho_file).?;
+                    const lp_atom = lp.getAtom(res.index, macho_file);
                     lp_atom.alignment = @max(lp_atom.alignment, atom.alignment);
                     _ = atom.alive.swap(false, .seq_cst);
                 }
@@ -688,10 +687,9 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
                 const res = try lp.insert(gpa, header.type(), buffer.items[addend..]);
                 buffer.clearRetainingCapacity();
                 if (!res.found_existing) {
-                    res.ref.* = .{ .index = atom.getExtra(macho_file).literal_symbol_index, .file = self.index };
+                    res.ref.* = atom.getExtra(macho_file).literal_atom_index.unwrap().?.toRef(self.index);
                 } else {
-                    const lp_sym = lp.getSymbol(res.index, macho_file);
-                    const lp_atom = lp_sym.getAtom(macho_file).?;
+                    const lp_atom = lp.getAtom(res.index, macho_file);
                     lp_atom.alignment = @max(lp_atom.alignment, atom.alignment);
                     _ = atom.alive.swap(false, .seq_cst);
                 }
@@ -724,8 +722,8 @@ pub fn dedupLiterals(self: *Object, lp: MachO.LiteralPool, macho_file: *MachO) v
             const isec = target_atom.getInputSection(macho_file);
             if (!Object.isCstringLiteral(isec) and !Object.isFixedSizeLiteral(isec) and !Object.isPtrLiteral(isec)) continue;
             const lp_index = target_atom.getExtra(macho_file).literal_pool_index;
-            const lp_sym = lp.getSymbol(lp_index, macho_file);
-            const lp_atom_ref = lp_sym.atom_ref;
+            const lp_atom = lp.getAtom(lp_index, macho_file);
+            const lp_atom_ref = lp_atom.toRef();
             if (!target_atom.toRef().eql(lp_atom_ref)) {
                 target_sym.atom_ref = lp_atom_ref;
             }
@@ -737,8 +735,8 @@ pub fn dedupLiterals(self: *Object, lp: MachO.LiteralPool, macho_file: *MachO) v
         const isec = atom.getInputSection(macho_file);
         if (!Object.isCstringLiteral(isec) and !Object.isFixedSizeLiteral(isec) and !Object.isPtrLiteral(isec)) continue;
         const lp_index = atom.getExtra(macho_file).literal_pool_index;
-        const lp_sym = lp.getSymbol(lp_index, macho_file);
-        const lp_atom_ref = lp_sym.atom_ref;
+        const lp_atom = lp.getAtom(lp_index, macho_file);
+        const lp_atom_ref = lp_atom.toRef();
         if (!atom.toRef().eql(lp_atom_ref)) {
             sym.atom_ref = lp_atom_ref;
         }
@@ -2384,6 +2382,7 @@ fn addAtomExtraAssumeCapacity(self: *Object, extra: Atom.Extra) u32 {
     inline for (fields) |field| {
         self.atoms_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
+            Atom.OptionalIndex => @intFromEnum(@field(extra, field.name)),
             else => @compileError("bad field type"),
         });
     }
@@ -2397,6 +2396,7 @@ pub fn getAtomExtra(self: Object, index: u32) Atom.Extra {
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => self.atoms_extra.items[i],
+            Atom.OptionalIndex => @enumFromInt(self.atoms_extra.items[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -2409,6 +2409,7 @@ pub fn setAtomExtra(self: *Object, index: u32, extra: Atom.Extra) void {
     inline for (fields, 0..) |field, i| {
         self.atoms_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),
+            Atom.OptionalIndex => @intFromEnum(@field(extra, field.name)),
             else => @compileError("bad field type"),
         };
     }
@@ -2818,7 +2819,7 @@ const x86_64 = struct {
                 .X86_64_RELOC_SIGNED_4 => 4,
                 else => 0,
             };
-            var is_extern = rel.r_extern == 1;
+            const is_extern = rel.r_extern == 1;
 
             const target: u32 = if (!is_extern) blk: {
                 const nsect = rel.r_symbolnum - 1;
@@ -2836,8 +2837,7 @@ const x86_64 = struct {
                 addend = taddr - @as(i64, @intCast(target_atom.getInputAddress(macho_file)));
                 const isec = target_atom.getInputSection(macho_file);
                 if (isCstringLiteral(isec) or isFixedSizeLiteral(isec) or isPtrLiteral(isec)) {
-                    is_extern = true;
-                    break :blk target_atom.getExtra(macho_file).literal_symbol_index;
+                    break :blk @intFromEnum(target_atom.getExtra(macho_file).literal_atom_index.unwrap().?); // TODO: this cast should not be needed
                 }
                 break :blk @intFromEnum(target); // TODO: this cast should not be needed
             } else rel.r_symbolnum;
@@ -3004,7 +3004,7 @@ const aarch64 = struct {
             }
 
             const rel_type: macho.reloc_type_arm64 = @enumFromInt(rel.r_type);
-            var is_extern = rel.r_extern == 1;
+            const is_extern = rel.r_extern == 1;
 
             const target: u32 = if (!is_extern) blk: {
                 const nsect = rel.r_symbolnum - 1;
@@ -3022,8 +3022,7 @@ const aarch64 = struct {
                 addend = taddr - @as(i64, @intCast(target_atom.getInputAddress(macho_file)));
                 const isec = target_atom.getInputSection(macho_file);
                 if (isCstringLiteral(isec) or isFixedSizeLiteral(isec) or isPtrLiteral(isec)) {
-                    is_extern = true;
-                    break :blk target_atom.getExtra(macho_file).literal_symbol_index;
+                    break :blk @intFromEnum(target_atom.getExtra(macho_file).literal_atom_index.unwrap().?); // TODO: this cast should not be needed
                 }
                 break :blk @intFromEnum(target); // TODO: this cast should not be needed
             } else rel.r_symbolnum;
