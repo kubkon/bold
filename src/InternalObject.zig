@@ -327,7 +327,7 @@ fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index
     };
     sym.nlist_idx = nlist_idx;
     try self.globals.append(gpa, 0);
-    atom.addExtra(.{ .literal_atom_index = atom_index.toOptional() }, macho_file);
+    atom.addExtra(.{ .literal_symbol_index = sym_index }, macho_file);
 
     return sym_index;
 }
@@ -414,9 +414,10 @@ pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file
         const res = try lp.insert(gpa, header.type(), buffer.items);
         buffer.clearRetainingCapacity();
         if (!res.found_existing) {
-            res.ref.* = atom.getExtra(macho_file).literal_atom_index.unwrap().?.toRef(self.index);
+            res.ref.* = .{ .index = atom.getExtra(macho_file).literal_symbol_index, .file = self.index };
         } else {
-            const lp_atom = lp.getAtom(res.index, macho_file);
+            const lp_sym = lp.getSymbol(res.index, macho_file);
+            const lp_atom = lp_sym.getAtom(macho_file).?;
             lp_atom.alignment = @max(lp_atom.alignment, atom.alignment);
             _ = atom.alive.swap(false, .seq_cst);
         }
@@ -446,8 +447,8 @@ pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *
             const target_atom = target_sym.getAtom(macho_file) orelse continue;
             if (!Object.isPtrLiteral(target_atom.getInputSection(macho_file))) continue;
             const lp_index = target_atom.getExtra(macho_file).literal_pool_index;
-            const lp_atom = lp.getAtom(lp_index, macho_file);
-            const lp_atom_ref = lp_atom.toRef();
+            const lp_sym = lp.getSymbol(lp_index, macho_file);
+            const lp_atom_ref = lp_sym.atom_ref;
             if (!target_atom.toRef().eql(lp_atom_ref)) {
                 target_sym.atom_ref = lp_atom_ref;
             }
@@ -466,8 +467,8 @@ pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *
         const atom = tsym.getAtom(macho_file) orelse continue;
         if (!Object.isPtrLiteral(atom.getInputSection(macho_file))) continue;
         const lp_index = atom.getExtra(macho_file).literal_pool_index;
-        const lp_atom = lp.getAtom(lp_index, macho_file);
-        const lp_atom_ref = lp_atom.toRef();
+        const lp_sym = lp.getSymbol(lp_index, macho_file);
+        const lp_atom_ref = lp_sym.atom_ref;
         if (!atom.toRef().eql(lp_atom_ref)) {
             tsym.atom_ref = lp_atom_ref;
         }
@@ -705,7 +706,6 @@ fn addAtomExtraAssumeCapacity(self: *InternalObject, extra: Atom.Extra) u32 {
     inline for (fields) |field| {
         self.atoms_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
-            Atom.OptionalIndex => @intFromEnum(@field(extra, field.name)),
             else => @compileError("bad field type"),
         });
     }
@@ -719,7 +719,6 @@ pub fn getAtomExtra(self: InternalObject, index: u32) Atom.Extra {
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => self.atoms_extra.items[i],
-            Atom.OptionalIndex => @enumFromInt(self.atoms_extra.items[i]),
             else => @compileError("bad field type"),
         };
         i += 1;
@@ -732,7 +731,6 @@ pub fn setAtomExtra(self: *InternalObject, index: u32, extra: Atom.Extra) void {
     inline for (fields, 0..) |field, i| {
         self.atoms_extra.items[index + i] = switch (field.type) {
             u32 => @field(extra, field.name),
-            Atom.OptionalIndex => @intFromEnum(@field(extra, field.name)),
             else => @compileError("bad field type"),
         };
     }

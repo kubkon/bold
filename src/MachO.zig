@@ -3113,7 +3113,7 @@ const default_pagezero_vmsize: u64 = 0x100000000;
 pub const LiteralPool = struct {
     table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
     keys: std.ArrayListUnmanaged(Key) = .{},
-    values: std.ArrayListUnmanaged(Atom.Ref) = .{},
+    values: std.ArrayListUnmanaged(MachO.Ref) = .{},
     data: std.ArrayListUnmanaged(u8) = .{},
 
     pub fn deinit(lp: *LiteralPool, allocator: Allocator) void {
@@ -3126,16 +3126,16 @@ pub const LiteralPool = struct {
     const InsertResult = struct {
         found_existing: bool,
         index: Index,
-        ref: *Atom.Ref,
+        ref: *MachO.Ref,
     };
 
-    pub fn getAtomRef(lp: LiteralPool, index: Index) Atom.Ref {
+    pub fn getSymbolRef(lp: LiteralPool, index: Index) MachO.Ref {
         assert(index < lp.values.items.len);
         return lp.values.items[index];
     }
 
-    pub fn getAtom(lp: LiteralPool, index: Index, macho_file: *MachO) *Atom {
-        return lp.getAtomRef(index).unwrap().?.getAtom(macho_file);
+    pub fn getSymbol(lp: LiteralPool, index: Index, macho_file: *MachO) *Symbol {
+        return lp.getSymbolRef(index).getSymbol(macho_file).?;
     }
 
     pub fn insert(lp: *LiteralPool, allocator: Allocator, @"type": u8, string: []const u8) !InsertResult {
