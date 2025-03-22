@@ -1,6 +1,6 @@
 tag: Tag,
 offset: u32,
-target: u32,
+target: Target,
 addend: i64,
 type: Type,
 meta: packed struct {
@@ -10,20 +10,18 @@ meta: packed struct {
     symbolnum: u24,
 },
 
-pub fn getTargetSymbolRef(rel: Relocation, atom: Atom, macho_file: *MachO) MachO.Ref {
+pub fn getTargetSymbolRef(rel: Relocation, atom: Atom, macho_file: *MachO) Symbol.Ref {
     assert(rel.tag == .@"extern");
-    return atom.getFile(macho_file).getSymbolRef(rel.target, macho_file);
+    return atom.getFile(macho_file).getSymbolRef(rel.target.symbol, macho_file);
 }
 
 pub fn getTargetSymbol(rel: Relocation, atom: Atom, macho_file: *MachO) *Symbol {
-    assert(rel.tag == .@"extern");
-    const ref = atom.getFile(macho_file).getSymbolRef(rel.target, macho_file);
-    return ref.getSymbol(macho_file).?;
+    return rel.getTargetSymbolRef(atom, macho_file).unwrap().?.getSymbol(macho_file);
 }
 
 pub fn getTargetAtom(rel: Relocation, atom: Atom, macho_file: *MachO) *Atom {
     assert(rel.tag == .local);
-    return atom.getFile(macho_file).getAtom(@enumFromInt(rel.target)); // TODO: this cast should not be needed
+    return atom.getFile(macho_file).getAtom(rel.target.atom);
 }
 
 pub fn getTargetAddress(rel: Relocation, atom: Atom, macho_file: *MachO) u64 {
@@ -150,6 +148,8 @@ pub const Type = enum {
     /// Absolute relocation (X86_64_RELOC_UNSIGNED or ARM64_RELOC_UNSIGNED)
     unsigned,
 };
+
+pub const Target = union { atom: Atom.Index, symbol: Symbol.Index };
 
 const Tag = enum { local, @"extern" };
 

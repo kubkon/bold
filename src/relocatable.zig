@@ -57,8 +57,8 @@ fn markExports(macho_file: *MachO) void {
     for (macho_file.objects.items) |index| {
         const object = macho_file.getFile(index).?.object;
         for (object.symbols.items, 0..) |*sym, i| {
-            const ref = object.getSymbolRef(@intCast(i), macho_file);
-            const file = ref.getFile(macho_file) orelse continue;
+            const ref = object.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+            const file = ref.getFile(macho_file);
             if (file.getIndex() != index) continue;
             if (sym.visibility != .global) continue;
             sym.flags.@"export" = true;

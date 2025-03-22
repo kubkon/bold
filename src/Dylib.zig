@@ -214,7 +214,7 @@ const TrieIterator = struct {
 pub fn addExport(self: *Dylib, allocator: Allocator, name: []const u8, flags: Export.Flags) !void {
     const str = try self.addString(allocator, name);
     const index = try self.addSymbol(allocator);
-    const symbol = &self.symbols.items[index];
+    const symbol = &self.symbols.items[@intFromEnum(index)];
     symbol.name = str;
     symbol.extra = try self.addSymbolExtra(allocator, .{});
     symbol.flags.weak = flags.weak;
@@ -614,7 +614,7 @@ fn initSymbols(self: *Dylib, macho_file: *MachO) !void {
 
     for (self.exports.items(.name), self.exports.items(.flags)) |noff, flags| {
         const index = self.addSymbolAssumeCapacity();
-        const symbol = &self.symbols.items[index];
+        const symbol = &self.symbols.items[@intFromEnum(index)];
         symbol.name = noff;
         symbol.extra = self.addSymbolExtraAssumeCapacity(.{});
         symbol.flags.weak = flags.weak;
@@ -632,24 +632,23 @@ pub fn resolveSymbols(self: *Dylib, macho_file: *MachO) !void {
     const gpa = macho_file.allocator;
 
     for (self.exports.items(.flags), self.globals.items, 0..) |flags, *global, i| {
-        const gop = try macho_file.resolver.getOrPut(gpa, .{
-            .index = @intCast(i),
-            .file = self.index,
-        }, macho_file);
+        const sym_index: Symbol.Index = @enumFromInt(i);
+        const sym_ref = sym_index.toRef(self.index);
+        const gop = try macho_file.resolver.getOrPut(gpa, sym_ref.unwrap().?, macho_file);
         if (!gop.found_existing) {
-            gop.ref.* = .{ .index = 0, .file = 0 };
+            gop.ref.* = .none;
         }
         global.* = gop.index;
 
-        if (gop.ref.getFile(macho_file) == null) {
-            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
+        const gop_unwrapped_ref = gop.ref.unwrap() orelse {
+            gop.ref.* = sym_ref;
             continue;
-        }
+        };
 
         if (self.asFile().getSymbolRank(.{
             .weak = flags.weak,
-        }) < gop.ref.getSymbol(macho_file).?.getSymbolRank(macho_file)) {
-            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
+        }) < gop_unwrapped_ref.getSymbol(macho_file).getSymbolRank(macho_file)) {
+            gop.ref.* = sym_ref;
         }
     }
 }
@@ -664,10 +663,10 @@ pub fn markReferenced(self: *Dylib, macho_file: *MachO) void {
     defer tracy.end();
 
     for (0..self.symbols.items.len) |i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        const file = ref.getFile(macho_file) orelse continue;
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+        const file = ref.getFile(macho_file);
         if (file.getIndex() != self.index) continue;
-        const global = ref.getSymbol(macho_file).?;
+        const global = ref.getSymbol(macho_file);
         if (global.isLocal()) continue;
         self.referenced = true;
         break;
@@ -679,9 +678,8 @@ pub fn calcSymtabSize(self: *Dylib, macho_file: *MachO) void {
     defer tracy.end();
 
     for (self.symbols.items, 0..) |*sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        const file = ref.getFile(macho_file) orelse continue;
-        if (file.getIndex() != self.index) continue;
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file);
+        if (ref.unwrap() == null) continue;
         if (sym.isLocal()) continue;
         assert(sym.flags.import);
         sym.flags.output_symtab = true;
@@ -697,8 +695,8 @@ pub fn writeSymtab(self: Dylib, macho_file: *MachO) void {
 
     var n_strx = self.output_symtab_ctx.stroff;
     for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        const file = ref.getFile(macho_file) orelse continue;
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+        const file = ref.getFile(macho_file);
         if (file.getIndex() != self.index) continue;
         const idx = sym.getOutputSymtabIndex(macho_file) orelse continue;
         const out_sym = &macho_file.symtab.items[idx];
@@ -740,16 +738,16 @@ fn addSymbol(self: *Dylib, allocator: Allocator) !Symbol.Index {
 }
 
 fn addSymbolAssumeCapacity(self: *Dylib) Symbol.Index {
-    const index: Symbol.Index = @intCast(self.symbols.items.len);
+    const index: Symbol.Index = @enumFromInt(self.symbols.items.len);
     const symbol = self.symbols.addOneAssumeCapacity();
     symbol.* = .{ .file = self.index };
     return index;
 }
 
-pub fn getSymbolRef(self: Dylib, index: Symbol.Index, macho_file: *MachO) MachO.Ref {
-    const global_index = self.globals.items[index];
+pub fn getSymbolRef(self: Dylib, index: Symbol.Index, macho_file: *MachO) Symbol.Ref {
+    const global_index = self.globals.items[@intFromEnum(index)];
     if (macho_file.resolver.get(global_index)) |ref| return ref;
-    return .{ .index = index, .file = self.index };
+    return index.toRef(self.index);
 }
 
 pub fn addSymbolExtra(self: *Dylib, allocator: Allocator, extra: Symbol.Extra) !u32 {
@@ -831,12 +829,11 @@ fn formatSymtab(
     const macho_file = ctx.macho_file;
     try writer.writeAll("  globals\n");
     for (dylib.symbols.items, 0..) |sym, i| {
-        const ref = dylib.getSymbolRef(@intCast(i), macho_file);
-        if (ref.getFile(macho_file) == null) {
-            // TODO any better way of handling this?
-            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+        const ref = dylib.getSymbolRef(@enumFromInt(i), macho_file);
+        if (ref.unwrap()) |unwrapped| {
+            try writer.print("    {}\n", .{unwrapped.getSymbol(macho_file).fmt(macho_file)});
         } else {
-            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
         }
     }
 }

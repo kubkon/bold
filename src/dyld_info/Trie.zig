@@ -99,8 +99,8 @@ pub fn updateSize(self: *Trie, macho_file: *MachO) !void {
 
     const seg = macho_file.getTextSegment();
     for (macho_file.resolver.values.items) |ref| {
-        if (ref.getFile(macho_file) == null) continue;
-        const sym = ref.getSymbol(macho_file).?;
+        const unwrapped = ref.unwrap() orelse continue;
+        const sym = unwrapped.getSymbol(macho_file);
         if (!sym.flags.@"export") continue;
         if (sym.getAtom(macho_file)) |atom| if (!atom.alive.load(.seq_cst)) continue;
         var flags: u64 = if (sym.flags.abs)

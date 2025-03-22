@@ -69,7 +69,7 @@ pub const Cie = struct {
     pub fn getPersonality(cie: Cie, macho_file: *MachO) ?*Symbol {
         const personality = cie.personality orelse return null;
         const object = cie.getObject(macho_file);
-        return object.getSymbolRef(personality.index, macho_file).getSymbol(macho_file);
+        return object.getSymbolRef(personality.index, macho_file).unwrap().?.getSymbol(macho_file);
     }
 
     pub fn eql(cie: Cie, other: Cie, macho_file: *MachO) bool {
@@ -127,7 +127,7 @@ pub const Cie = struct {
     };
 
     pub const Personality = struct {
-        index: Symbol.Index = 0,
+        index: Symbol.Index,
         offset: u32 = 0,
     };
 };

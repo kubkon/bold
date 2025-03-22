@@ -408,7 +408,80 @@ pub const Extra = struct {
     objc_selrefs: u32 = 0,
 };
 
-pub const Index = u32;
+pub const Index = enum(u32) {
+    _,
+
+    pub fn toOptional(index: Index) OptionalIndex {
+        const result: OptionalIndex = @enumFromInt(@intFromEnum(index));
+        assert(result != .none);
+        return result;
+    }
+
+    pub fn toRef(index: Index, file: File.Index) Ref {
+        const result: Ref = @enumFromInt(@intFromEnum(index) | @as(u64, @intCast(file)) << 32);
+        assert(result != .none);
+        return result;
+    }
+};
+
+pub const OptionalIndex = enum(u32) {
+    none = std.math.maxInt(u32),
+    _,
+
+    pub fn unwrap(opt: OptionalIndex) ?Index {
+        if (opt == .none) return null;
+        return @enumFromInt(@intFromEnum(opt));
+    }
+
+    pub fn eql(opt: OptionalIndex, other: OptionalIndex) bool {
+        return @intFromEnum(opt) == @intFromEnum(other);
+    }
+};
+
+pub const Ref = enum(u64) {
+    none = std.math.maxInt(u64),
+    _,
+
+    pub fn unwrap(ref: Ref) ?UnwrappedRef {
+        if (ref == .none) return null;
+        const raw = @intFromEnum(ref);
+        const sym_index: Index = @enumFromInt(@as(u32, @truncate(raw)));
+        const file_index: File.Index = @truncate(raw >> 32);
+        return .{ .symbol = sym_index, .file = file_index };
+    }
+
+    pub fn eql(ref: Ref, other: Ref) bool {
+        return @intFromEnum(ref) == @intFromEnum(other);
+    }
+
+    pub fn lessThan(ref: Ref, other: Ref) bool {
+        return @intFromEnum(ref) < @intFromEnum(other);
+    }
+};
+
+pub const UnwrappedRef = struct {
+    symbol: Index,
+    file: File.Index,
+
+    pub fn getSymbol(ref: UnwrappedRef, macho_file: *MachO) *Symbol {
+        return ref.getSymbol(macho_file);
+    }
+
+    pub fn getFile(ref: UnwrappedRef, macho_file: *MachO) File {
+        return macho_file.getFile(ref.file).?;
+    }
+
+    pub fn eql(ref: UnwrappedRef, other: UnwrappedRef) bool {
+        return ref.symbol == other.symbol and ref.file == other.file;
+    }
+
+    pub fn lessThan(ref: UnwrappedRef, other: UnwrappedRef) bool {
+        if (ref.file == other.file) {
+            return @intFromEnum(ref.symbol) < @intFromEnum(other.symbol);
+        }
+        return ref.file < other.file;
+    }
+};
 
 const assert = std.debug.assert;
 const macho = std.macho;

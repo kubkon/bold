@@ -1432,8 +1432,8 @@ fn initSyntheticSections(self: *MachO) !void {
         const gpa = self.allocator;
 
         for (obj.boundary_symbols.items) |sym_index| {
-            const ref = obj.getSymbolRef(sym_index, self);
-            const sym = ref.getSymbol(self).?;
+            const ref = obj.getSymbolRef(sym_index, self).unwrap().?;
+            const sym = ref.getSymbol(self);
             const name = sym.getName(self);
 
             if (eatPrefix(name, "segment$start$")) |segname| {
@@ -1964,8 +1964,8 @@ fn allocateSyntheticSymbols(self: *MachO) void {
         const text_seg = self.getTextSegment();
 
         for (obj.boundary_symbols.items) |sym_index| {
-            const ref = obj.getSymbolRef(sym_index, self);
-            const sym = ref.getSymbol(self).?;
+            const ref = obj.getSymbolRef(sym_index, self).unwrap().?;
+            const sym = ref.getSymbol(self);
             const name = sym.getName(self);
 
             sym.value = text_seg.vmaddr;
@@ -2010,7 +2010,7 @@ fn allocateSyntheticSymbols(self: *MachO) void {
         const addr = self.sections.items(.header)[self.objc_stubs_sect_index.?].addr;
 
         for (self.objc_stubs.symbols.items, 0..) |ref, idx| {
-            const sym = ref.getSymbol(self).?;
+            const sym = ref.getSymbol(self);
             sym.value = addr + idx * ObjcStubsSection.entrySize(self.options.cpu_arch.?);
             sym.out_n_sect = self.objc_stubs_sect_index.?;
         }
@@ -2471,7 +2471,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, usize } {
 
     if (self.getInternalObject()) |obj| {
         if (obj.getEntryRef(self)) |ref| {
-            const sym = ref.getSymbol(self).?;
+            const sym = ref.unwrap().?.getSymbol(self);
             const seg = self.getTextSegment();
             const entryoff: u32 = if (sym.getFile(self) == null)
                 0
@@ -2855,7 +2855,9 @@ fn createThunks(self: *MachO, sect_id: u8) !void {
                 for (atom.getRelocs(mf)) |rel| {
                     if (rel.type != .branch) continue;
                     if (Thunk.isReachable(atom, rel, mf)) continue;
-                    try thunk.symbols.put(gpa, rel.getTargetSymbolRef(atom.*, mf), {});
+
+                    const target_symbol_ref = rel.getTargetSymbolRef(atom.*, mf).unwrap().?;
+                    try thunk.symbols.put(gpa, target_symbol_ref, {});
                 }
                 atom.addExtra(.{ .thunk = thunk_index }, mf);
             }
@@ -3113,7 +3115,7 @@ const default_pagezero_vmsize: u64 = 0x100000000;
 pub const LiteralPool = struct {
     table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
     keys: std.ArrayListUnmanaged(Key) = .{},
-    values: std.ArrayListUnmanaged(MachO.Ref) = .{},
+    values: std.ArrayListUnmanaged(Symbol.UnwrappedRef) = .{},
     data: std.ArrayListUnmanaged(u8) = .{},
 
     pub fn deinit(lp: *LiteralPool, allocator: Allocator) void {
@@ -3126,16 +3128,16 @@ pub const LiteralPool = struct {
     const InsertResult = struct {
         found_existing: bool,
         index: Index,
-        ref: *MachO.Ref,
+        ref: *Symbol.UnwrappedRef,
     };
 
-    pub fn getSymbolRef(lp: LiteralPool, index: Index) MachO.Ref {
+    pub fn getSymbolRef(lp: LiteralPool, index: Index) Symbol.UnwrappedRef {
         assert(index < lp.values.items.len);
         return lp.values.items[index];
     }
 
     pub fn getSymbol(lp: LiteralPool, index: Index, macho_file: *MachO) *Symbol {
-        return lp.getSymbolRef(index).getSymbol(macho_file).?;
+        return lp.getSymbolRef(index).getSymbol(macho_file);
     }
 
     pub fn insert(lp: *LiteralPool, allocator: Allocator, @"type": u8, string: []const u8) !InsertResult {
@@ -3225,55 +3227,15 @@ pub const null_sym = macho.nlist_64{
     .n_value = 0,
 };
 
-/// A reference to atom or symbol in an input file.
-/// If file == 0, symbol is an undefined global.
-pub const Ref = struct {
-    index: u32,
-    file: File.Index,
-
-    pub fn eql(ref: Ref, other: Ref) bool {
-        return ref.index == other.index and ref.file == other.file;
-    }
-
-    pub fn lessThan(ref: Ref, other: Ref) bool {
-        if (ref.file == other.file) {
-            return ref.index < other.index;
-        }
-        return ref.file < other.file;
-    }
-
-    pub fn getFile(ref: Ref, macho_file: *MachO) ?File {
-        return macho_file.getFile(ref.file);
-    }
-
-    pub fn getSymbol(ref: Ref, macho_file: *MachO) ?*Symbol {
-        const file = ref.getFile(macho_file) orelse return null;
-        return switch (file) {
-            inline else => |x| &x.symbols.items[ref.index],
-        };
-    }
-
-    pub fn format(
-        ref: Ref,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        try writer.print("%{d} in file({d})", .{ ref.index, ref.file });
-    }
-};
-
 pub const SymbolResolver = struct {
     keys: std.ArrayListUnmanaged(Key) = .{},
-    values: std.ArrayListUnmanaged(Ref) = .{},
+    values: std.ArrayListUnmanaged(Symbol.Ref) = .{},
     table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
 
     const Result = struct {
         found_existing: bool,
         index: Index,
-        ref: *Ref,
+        ref: *Symbol.Ref,
     };
 
     pub fn deinit(resolver: *SymbolResolver, allocator: Allocator) void {
@@ -3285,11 +3247,11 @@ pub const SymbolResolver = struct {
     pub fn getOrPut(
         resolver: *SymbolResolver,
         allocator: Allocator,
-        ref: Ref,
+        ref: Symbol.UnwrappedRef,
         macho_file: *MachO,
     ) !Result {
         const adapter = Adapter{ .keys = resolver.keys.items, .macho_file = macho_file };
-        const key = Key{ .index = ref.index, .file = ref.file };
+        const key = Key{ .index = ref.symbol, .file = ref.file };
         const gop = try resolver.table.getOrPutAdapted(allocator, key, adapter);
         if (!gop.found_existing) {
             try resolver.keys.append(allocator, key);
@@ -3302,7 +3264,7 @@ pub const SymbolResolver = struct {
         };
     }
 
-    pub fn get(resolver: SymbolResolver, index: Index) ?Ref {
+    pub fn get(resolver: SymbolResolver, index: Index) ?Symbol.Ref {
         if (index == 0) return null;
         return resolver.values.items[index - 1];
     }
@@ -3318,12 +3280,12 @@ pub const SymbolResolver = struct {
         file: File.Index,
 
         fn getName(key: Key, macho_file: *MachO) [:0]const u8 {
-            const ref = Ref{ .index = key.index, .file = key.file };
-            return ref.getSymbol(macho_file).?.getName(macho_file);
+            const ref = key.index.toRef(key.file).unwrap().?;
+            return ref.getSymbol(macho_file).getName(macho_file);
         }
 
         fn getFile(key: Key, macho_file: *MachO) ?File {
-            const ref = Ref{ .index = key.index, .file = key.file };
+            const ref = key.index.toRef(key.file).unwrap() orelse return null;
             return ref.getFile(macho_file);
         }
 

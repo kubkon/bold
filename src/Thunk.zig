@@ -1,6 +1,6 @@
 value: u64 = 0,
 out_n_sect: u8 = 0,
-symbols: std.AutoArrayHashMapUnmanaged(MachO.Ref, void) = .{},
+symbols: std.AutoArrayHashMapUnmanaged(Symbol.UnwrappedRef, void) = .{},
 
 pub fn deinit(thunk: *Thunk, allocator: Allocator) void {
     thunk.symbols.deinit(allocator);
@@ -15,13 +15,13 @@ pub fn getAddress(thunk: Thunk, macho_file: *MachO) u64 {
     return header.addr + thunk.value;
 }
 
-pub fn getTargetAddress(thunk: Thunk, ref: MachO.Ref, macho_file: *MachO) u64 {
+pub fn getTargetAddress(thunk: Thunk, ref: Symbol.UnwrappedRef, macho_file: *MachO) u64 {
     return thunk.getAddress(macho_file) + thunk.symbols.getIndex(ref).? * trampoline_size;
 }
 
 pub fn write(thunk: Thunk, macho_file: *MachO, writer: anytype) !void {
     for (thunk.symbols.keys(), 0..) |ref, i| {
-        const sym = ref.getSymbol(macho_file).?;
+        const sym = ref.getSymbol(macho_file);
         const saddr = thunk.getAddress(macho_file) + i * trampoline_size;
         const taddr = sym.getAddress(.{}, macho_file);
         const pages = try aarch64.calcNumberOfPages(@intCast(saddr), @intCast(taddr));
@@ -81,7 +81,7 @@ fn format2(
     const macho_file = ctx.macho_file;
     try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size() });
     for (thunk.symbols.keys()) |ref| {
-        const sym = ref.getSymbol(macho_file).?;
+        const sym = ref.getSymbol(macho_file);
         try writer.print("  {} : {s} : @{x}\n", .{ ref, sym.getName(macho_file), sym.value });
     }
 }
