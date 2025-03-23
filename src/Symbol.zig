@@ -464,7 +464,10 @@ pub const UnwrappedRef = struct {
     file: File.Index,
 
     pub fn getSymbol(ref: UnwrappedRef, macho_file: *MachO) *Symbol {
-        return ref.getSymbol(macho_file);
+        const file = macho_file.getFile(ref.file).?;
+        return switch (file) {
+            inline else => |x| &x.symbols.items[@intFromEnum(ref.symbol)],
+        };
     }
 
     pub fn getFile(ref: UnwrappedRef, macho_file: *MachO) File {
