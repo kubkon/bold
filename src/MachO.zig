@@ -1213,7 +1213,7 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
         const err = try self.addErrorWithNotes(nnotes + 1);
         defer err.unlock();
         try err.addMsg("duplicate symbol definition: {s}", .{sym.getName(self)});
-        try err.addNote("defined by {}", .{sym.getFile(self).?.fmtPath()});
+        try err.addNote("defined by {}", .{sym.getFile(self).fmtPath()});
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
@@ -3280,13 +3280,15 @@ pub const SymbolResolver = struct {
         file: File.Index,
 
         fn getName(key: Key, macho_file: *MachO) [:0]const u8 {
-            const ref = key.index.toRef(key.file).unwrap().?;
-            return ref.getSymbol(macho_file).getName(macho_file);
+            const file = key.getFile(macho_file);
+            const sym = switch (file) {
+                inline else => |x| &x.symbols.items[@intFromEnum(key.index)],
+            };
+            return sym.getName(macho_file);
         }
 
-        fn getFile(key: Key, macho_file: *MachO) ?File {
-            const ref = key.index.toRef(key.file).unwrap() orelse return null;
-            return ref.getFile(macho_file);
+        fn getFile(key: Key, macho_file: *MachO) File {
+            return macho_file.getFile(key.file).?;
         }
 
         fn eql(key: Key, other: Key, macho_file: *MachO) bool {
