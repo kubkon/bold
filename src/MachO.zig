@@ -276,7 +276,7 @@ pub fn link(self: *MachO) !void {
     try self.checkDuplicates();
 
     self.markImportsAndExports();
-    self.deadStripDylibs();
+    try self.deadStripDylibs();
 
     for (self.dylibs.items, 1..) |index, ord| {
         const dylib = self.getFile(index).?.dylib;
@@ -1024,7 +1024,7 @@ fn markLive(self: *MachO) void {
     if (self.getInternalObject()) |obj| obj.markLive(self);
 }
 
-fn deadStripDylibs(self: *MachO) void {
+fn deadStripDylibs(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -1032,14 +1032,30 @@ fn deadStripDylibs(self: *MachO) void {
         self.getFile(index).?.dylib.markReferenced(self);
     }
 
+    var stripped = std.AutoHashMap(File.Index, void).init(self.allocator);
+    defer stripped.deinit();
+    try stripped.ensureTotalCapacity(@intCast(self.dylibs.items.len));
+
     var i: usize = 0;
     while (i < self.dylibs.items.len) {
         const index = self.dylibs.items[i];
         if (!self.getFile(index).?.dylib.isAlive(self)) {
+            stripped.putAssumeCapacity(index, {});
             _ = self.dylibs.orderedRemove(i);
             self.files.items(.data)[index].dylib.deinit(self.allocator);
             self.files.set(index, .null);
         } else i += 1;
+    }
+
+    // We need to mark any symbol reference that has been resolved in a dead stripped
+    // dylib as none since the dylib itself has now been pruned.
+    // TODO: I need to figure out if this is really needed, or if the design
+    // could actually be improved upon.
+    for (self.resolver.values.items) |*ref| {
+        const unwrapped = ref.unwrap() orelse continue;
+        if (stripped.contains(unwrapped.file)) {
+            ref.* = .none;
+        }
     }
 }
 
