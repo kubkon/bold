@@ -18,8 +18,8 @@ fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho
     for (objects) |index| {
         const object = macho_file.getFile(index).?;
         for (object.getSymbols(), 0..) |*sym, i| {
-            const ref = object.getSymbolRef(@intCast(i), macho_file);
-            const file = ref.getFile(macho_file) orelse continue;
+            const ref = object.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+            const file = ref.getFile(macho_file);
             if (file.getIndex() != index) continue;
             if (sym.flags.no_dead_strip or (macho_file.options.dylib and sym.visibility == .global))
                 try markSymbol(sym, roots, macho_file);
@@ -53,11 +53,9 @@ fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho
 
     if (macho_file.getInternalObject()) |obj| {
         for (obj.force_undefined.items) |sym_index| {
-            const ref = obj.getSymbolRef(sym_index, macho_file);
-            if (ref.getFile(macho_file) != null) {
-                const sym = ref.getSymbol(macho_file).?;
-                try markSymbol(sym, roots, macho_file);
-            }
+            const ref = obj.getSymbolRef(sym_index, macho_file).unwrap() orelse continue;
+            const sym = ref.getSymbol(macho_file);
+            try markSymbol(sym, roots, macho_file);
         }
 
         for (&[_]?Symbol.Index{
@@ -66,11 +64,9 @@ fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho
             obj.objc_msg_send_index,
         }) |index| {
             if (index) |idx| {
-                const ref = obj.getSymbolRef(idx, macho_file);
-                if (ref.getFile(macho_file) != null) {
-                    const sym = ref.getSymbol(macho_file).?;
-                    try markSymbol(sym, roots, macho_file);
-                }
+                const ref = obj.getSymbolRef(idx, macho_file).unwrap() orelse continue;
+                const sym = ref.getSymbol(macho_file);
+                try markSymbol(sym, roots, macho_file);
             }
         }
     }
@@ -130,8 +126,8 @@ fn markLive(atom: *Atom, macho_file: *MachO) void {
         const target_atom = switch (rel.tag) {
             .local => rel.getTargetAtom(atom.*, macho_file),
             .@"extern" => blk: {
-                const ref = rel.getTargetSymbolRef(atom.*, macho_file);
-                break :blk if (ref.getSymbol(macho_file)) |sym| sym.getAtom(macho_file) else null;
+                const ref = rel.getTargetSymbolRef(atom.*, macho_file).unwrap() orelse break :blk null;
+                break :blk ref.getSymbol(macho_file).getAtom(macho_file);
             },
         };
         if (target_atom) |ta| {
@@ -164,8 +160,8 @@ fn refersLive(atom: *Atom, macho_file: *MachO) bool {
         const target_atom = switch (rel.tag) {
             .local => rel.getTargetAtom(atom.*, macho_file),
             .@"extern" => blk: {
-                const ref = rel.getTargetSymbolRef(atom.*, macho_file);
-                break :blk if (ref.getSymbol(macho_file)) |sym| sym.getAtom(macho_file) else null;
+                const ref = rel.getTargetSymbolRef(atom.*, macho_file).unwrap() orelse break :blk null;
+                break :blk ref.getSymbol(macho_file).getAtom(macho_file);
             },
         };
         if (target_atom) |ta| {

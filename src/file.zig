@@ -44,8 +44,8 @@ pub const File = union(enum) {
             if (sym.visibility != .global) continue;
             if (sym.flags.weak) continue;
             if (nlist.undf()) continue;
-            const ref = file.getSymbolRef(@intCast(i), macho_file);
-            const ref_file = ref.getFile(macho_file) orelse continue;
+            const ref = file.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+            const ref_file = ref.getFile(macho_file);
             if (ref_file.getIndex() == file.getIndex()) continue;
 
             macho_file.dupes_mutex.lock();
@@ -135,7 +135,7 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn getSymbolRef(file: File, sym_index: Symbol.Index, macho_file: *MachO) MachO.Ref {
+    pub fn getSymbolRef(file: File, sym_index: Symbol.Index, macho_file: *MachO) Symbol.Ref {
         return switch (file) {
             inline else => |x| x.getSymbolRef(sym_index, macho_file),
         };
@@ -161,15 +161,14 @@ pub const File = union(enum) {
             inline else => |x| x.symbols.items.len,
         };
         for (0..nsyms) |i| {
-            const ref = file.getSymbolRef(@intCast(i), macho_file);
-            if (ref.getFile(macho_file) == null) continue;
-            const sym = ref.getSymbol(macho_file).?;
+            const ref = file.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+            const sym = ref.getSymbol(macho_file);
             if (sym.visibility != .global) continue;
             if (sym.getFile(macho_file).? == .dylib and !sym.flags.abs) {
                 sym.flags.import = true;
                 continue;
             }
-            if (file.getIndex() == ref.file) {
+            if (file.getIndex() == ref.getFile(macho_file).getIndex()) {
                 sym.flags.@"export" = true;
             }
         }
@@ -180,10 +179,9 @@ pub const File = union(enum) {
             inline else => |x| x.symbols.items.len,
         };
         for (0..nsyms) |i| {
-            const ref = file.getSymbolRef(@intCast(i), macho_file);
-            if (ref.getFile(macho_file) == null) continue;
-            if (ref.file != file.getIndex()) continue;
-            const sym = ref.getSymbol(macho_file).?;
+            const ref = file.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+            if (ref.getFile(macho_file).getIndex() != file.getIndex()) continue;
+            const sym = ref.getSymbol(macho_file);
             if (sym.getSectionFlags().got) {
                 log.debug("'{s}' needs GOT", .{sym.getName(macho_file)});
                 try macho_file.got.addSymbol(ref, macho_file);

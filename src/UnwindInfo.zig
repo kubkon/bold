@@ -4,7 +4,7 @@ records: std.ArrayListUnmanaged(Record.Ref) = .{},
 
 /// List of all personalities referenced by either unwind info entries
 /// or __eh_frame entries.
-personalities: [max_personalities]MachO.Ref = undefined,
+personalities: [max_personalities]Symbol.UnwrappedRef = undefined,
 personalities_count: u2 = 0,
 
 /// List of common encodings sorted in descending order with the most common first.
@@ -33,10 +33,8 @@ fn canFold(macho_file: *MachO, lhs_ref: Record.Ref, rhs_ref: Record.Ref) bool {
         if (lhs.enc.getMode() == @intFromEnum(macho.UNWIND_X86_64_MODE.STACK_IND) or
             rhs.enc.getMode() == @intFromEnum(macho.UNWIND_X86_64_MODE.STACK_IND)) return false;
     }
-    const lhs_per = lhs.personality orelse 0;
-    const rhs_per = rhs.personality orelse 0;
     return lhs.enc.eql(rhs.enc) and
-        lhs_per == rhs_per and
+        lhs.personality.eql(rhs.personality) and
         lhs.fde == rhs.fde and
         lhs.getLsdaAtom(macho_file) == null and rhs.getLsdaAtom(macho_file) == null;
 }
@@ -60,7 +58,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
             try info.records.ensureUnusedCapacity(gpa, recs.len);
             for (recs) |rec| {
                 if (!file.object.getUnwindRecord(rec).alive) continue;
-                info.records.appendAssumeCapacity(.{ .record = rec, .file = file.getIndex() });
+                info.records.appendAssumeCapacity(rec.toRef(file.getIndex()));
             }
         }
     }
@@ -78,13 +76,13 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
             const cie = fde.getCie(macho_file);
             if (cie.getPersonality(macho_file)) |_| {
                 const object = cie.getObject(macho_file);
-                const sym_ref = object.getSymbolRef(cie.personality.?.index, macho_file);
+                const sym_ref = object.getSymbolRef(cie.personality.?.index, macho_file).unwrap().?;
                 const personality_index = try info.getOrPutPersonalityFunction(sym_ref); // TODO handle error
                 rec.enc.setPersonalityIndex(personality_index + 1);
             }
         } else if (rec.getPersonality(macho_file)) |_| {
             const object = rec.getObject(macho_file);
-            const sym_ref = object.getSymbolRef(rec.personality.?, macho_file);
+            const sym_ref = object.getSymbolRef(rec.personality.unwrap().?, macho_file).unwrap().?;
             const personality_index = try info.getOrPutPersonalityFunction(sym_ref); // TODO handle error
             rec.enc.setPersonalityIndex(personality_index + 1);
         }
@@ -123,12 +121,11 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     for (info.records.items) |ref| {
         const rec = ref.getUnwindRecord(macho_file);
         const atom = rec.getAtom(macho_file);
-        log.debug("@{x}-{x} : {s} : rec({d}) : object({d}) : {}", .{
+        log.debug("@{x}-{x} : {s} : rec({d}) : {}", .{
             rec.getAtomAddress(macho_file),
             rec.getAtomAddress(macho_file) + rec.length,
             atom.getName(macho_file),
-            ref.record,
-            ref.file,
+            ref,
             rec.enc,
         });
     }
@@ -306,7 +303,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     try writer.writeAll(mem.sliceAsBytes(info.common_encodings[0..info.common_encodings_count]));
 
     for (info.personalities[0..info.personalities_count]) |ref| {
-        const sym = ref.getSymbol(macho_file).?;
+        const sym = ref.getSymbol(macho_file);
         try writer.writeInt(u32, @intCast(sym.getGotAddress(macho_file) - seg.vmaddr), .little);
     }
 
@@ -356,7 +353,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     }
 }
 
-fn getOrPutPersonalityFunction(info: *UnwindInfo, ref: MachO.Ref) error{TooManyPersonalities}!u2 {
+fn getOrPutPersonalityFunction(info: *UnwindInfo, ref: Symbol.UnwrappedRef) error{TooManyPersonalities}!u2 {
     comptime var index: u2 = 0;
     inline while (index < max_personalities) : (index += 1) {
         if (info.personalities[index].eql(ref)) {
@@ -468,8 +465,8 @@ pub const Record = struct {
     enc: Encoding = .{ .enc = 0 },
     lsda: Atom.OptionalIndex = .none,
     lsda_offset: u32 = 0,
-    personality: ?Symbol.Index = null, // TODO make this zero-is-null
-    fde: Fde.Index = 0, // TODO actually make FDE at 0 an invalid FDE
+    personality: Symbol.OptionalIndex = .none,
+    fde: Fde.OptionalIndex = .none,
     alive: bool = true,
 
     pub fn getObject(rec: Record, macho_file: *MachO) *Object {
@@ -486,19 +483,21 @@ pub const Record = struct {
     }
 
     pub fn getPersonality(rec: Record, macho_file: *MachO) ?*Symbol {
-        const personality = rec.personality orelse return null;
+        const personality = rec.personality.unwrap() orelse return null;
         const object = rec.getObject(macho_file);
-        return object.getSymbolRef(personality, macho_file).getSymbol(macho_file);
+        return object.getSymbolRef(personality, macho_file).unwrap().?.getSymbol(macho_file);
     }
 
     pub fn getFde(rec: Record, macho_file: *MachO) ?Fde {
         if (!rec.enc.isDwarf(macho_file)) return null;
-        return rec.getObject(macho_file).fdes.items[rec.fde];
+        const fde_index = rec.fde.unwrap() orelse return null;
+        return rec.getObject(macho_file).fdes.items[@intFromEnum(fde_index)];
     }
 
     pub fn getFdePtr(rec: Record, macho_file: *MachO) ?*Fde {
         if (!rec.enc.isDwarf(macho_file)) return null;
-        return &rec.getObject(macho_file).fdes.items[rec.fde];
+        const fde_index = rec.fde.unwrap() orelse return null;
+        return &rec.getObject(macho_file).fdes.items[@intFromEnum(fde_index)];
     }
 
     pub fn getAtomAddress(rec: Record, macho_file: *MachO) u64 {
@@ -554,15 +553,22 @@ pub const Record = struct {
         if (!rec.alive) try writer.writeAll(" : [*]");
     }
 
-    pub const Index = u32;
+    pub const Index = enum(u32) {
+        _,
 
-    // TODO convert into MachO.Ref
-    pub const Ref = struct {
-        record: Index,
-        file: File.Index,
+        pub fn toRef(index: Index, file: File.Index) Ref {
+            return @enumFromInt(@intFromEnum(index) | @as(u64, @intCast(file)) << 32);
+        }
+    };
+
+    pub const Ref = enum(u64) {
+        _,
 
         pub fn getUnwindRecord(ref: Ref, macho_file: *MachO) *Record {
-            return macho_file.getFile(ref.file).?.object.getUnwindRecord(ref.record);
+            const raw = @intFromEnum(ref);
+            const rec_index: Index = @enumFromInt(@as(u32, @truncate(raw)));
+            const file_index: File.Index = @truncate(raw >> 32);
+            return macho_file.getFile(file_index).?.object.getUnwindRecord(rec_index);
         }
     };
 };

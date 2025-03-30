@@ -55,7 +55,7 @@ pub fn initSymbols(self: *InternalObject, macho_file: *MachO) !void {
             desc: u16 = 0,
         }) Symbol.Index {
             const index = obj.addSymbolAssumeCapacity();
-            const symbol = &obj.symbols.items[index];
+            const symbol = &obj.symbols.items[@intFromEnum(index)];
             symbol.name = name;
             symbol.extra = obj.addSymbolExtraAssumeCapacity(.{});
             symbol.flags.dyn_ref = args.desc & macho.REFERENCED_DYNAMICALLY != 0;
@@ -132,27 +132,27 @@ pub fn resolveSymbols(self: *InternalObject, macho_file: *MachO) !void {
     const gpa = macho_file.allocator;
 
     for (self.symtab.items, self.globals.items, 0..) |nlist, *global, i| {
-        const gop = try macho_file.resolver.getOrPut(gpa, .{
-            .index = @intCast(i),
-            .file = self.index,
-        }, macho_file);
+        const sym_index: Symbol.Index = @enumFromInt(i);
+        const sym_ref = sym_index.toRef(self.index);
+        const gop = try macho_file.resolver.getOrPut(gpa, sym_ref.unwrap().?, macho_file);
         if (!gop.found_existing) {
-            gop.ref.* = .{ .index = 0, .file = 0 };
+            gop.ref.* = .none;
         }
         global.* = gop.index;
 
         if (nlist.undf()) continue;
-        if (gop.ref.getFile(macho_file) == null) {
-            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
+
+        const gop_unwrapped_ref = gop.ref.unwrap() orelse {
+            gop.ref.* = sym_ref;
             continue;
-        }
+        };
 
         if (self.asFile().getSymbolRank(.{
             .archive = false,
             .weak = false,
             .tentative = false,
-        }) < gop.ref.getSymbol(macho_file).?.getSymbolRank(macho_file)) {
-            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
+        }) < gop_unwrapped_ref.getSymbol(macho_file).getSymbolRank(macho_file)) {
+            gop.ref.* = sym_ref;
         }
     }
 }
@@ -162,16 +162,17 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
     defer tracy.end();
 
     const gpa = macho_file.allocator;
-    var boundary_symbols = std.StringArrayHashMap(MachO.Ref).init(gpa);
+    var boundary_symbols = std.StringArrayHashMap(Symbol.UnwrappedRef).init(gpa);
     defer boundary_symbols.deinit();
 
     for (macho_file.objects.items) |index| {
         const object = macho_file.getFile(index).?.object;
         for (object.symbols.items, 0..) |sym, i| {
+            const sym_index: Symbol.Index = @enumFromInt(i);
             const nlist = object.symtab.items(.nlist)[i];
             if (!nlist.undf() or !nlist.ext()) continue;
-            const ref = object.getSymbolRef(@intCast(i), macho_file);
-            if (ref.getFile(macho_file) != null) continue;
+            const ref = object.getSymbolRef(sym_index, macho_file);
+            if (ref.unwrap() != null) continue;
             const name = sym.getName(macho_file);
             if (mem.startsWith(u8, name, "segment$start$") or
                 mem.startsWith(u8, name, "segment$end$") or
@@ -180,7 +181,7 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
             {
                 const gop = try boundary_symbols.getOrPut(name);
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = .{ .index = @intCast(i), .file = index };
+                    gop.value_ptr.* = sym_index.toRef(index).unwrap().?;
                 }
             }
         }
@@ -197,7 +198,7 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
         const name_off = try self.addString(gpa, name);
         const sym_index = self.addSymbolAssumeCapacity();
         self.boundary_symbols.appendAssumeCapacity(sym_index);
-        const sym = &self.symbols.items[sym_index];
+        const sym = &self.symbols.items[@intFromEnum(sym_index)];
         sym.name = name_off;
         sym.visibility = .local;
         const nlist_idx: u32 = @intCast(self.symtab.items.len);
@@ -212,9 +213,9 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
         sym.nlist_idx = nlist_idx;
         sym.extra = self.addSymbolExtraAssumeCapacity(.{});
 
-        const idx = ref.getFile(macho_file).?.object.globals.items[ref.index];
+        const idx = ref.getFile(macho_file).object.globals.items[@intFromEnum(ref.symbol)];
         self.globals.addOneAssumeCapacity().* = idx;
-        macho_file.resolver.values.items[idx - 1] = .{ .index = sym_index, .file = self.index };
+        macho_file.resolver.values.items[idx - 1] = sym_index.toRef(self.index);
     }
 }
 
@@ -226,8 +227,9 @@ pub fn markLive(self: *InternalObject, macho_file: *MachO) void {
         const nlist = self.symtab.items[i];
         if (!nlist.ext()) continue;
 
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        const file = ref.getFile(macho_file) orelse continue;
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file);
+        const unwrapped = ref.unwrap() orelse continue;
+        const file = unwrapped.getFile(macho_file);
         if (file == .object and !file.object.alive) {
             file.object.alive = true;
             file.object.markLive(macho_file);
@@ -261,7 +263,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
 
     const name_str = try self.addString(gpa, "ltmp");
     const sym_index = try self.addSymbol(gpa);
-    const sym = &self.symbols.items[sym_index];
+    const sym = &self.symbols.items[@intFromEnum(sym_index)];
     sym.name = name_str;
     sym.atom_ref = atom_index.toRef(self.index);
     sym.extra = try self.addSymbolExtra(gpa, .{});
@@ -300,7 +302,7 @@ fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index
     relocs.appendAssumeCapacity(.{
         .tag = .@"extern",
         .offset = 0,
-        .target = methname_sym_index,
+        .target = .{ .symbol = methname_sym_index },
         .addend = 0,
         .type = .unsigned,
         .meta = .{
@@ -313,7 +315,7 @@ fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index
     atom.addExtra(.{ .rel_index = 0, .rel_count = 1 }, macho_file);
 
     const sym_index = try self.addSymbol(gpa);
-    const sym = &self.symbols.items[sym_index];
+    const sym = &self.symbols.items[@intFromEnum(sym_index)];
     sym.atom_ref = atom_index.toRef(self.index);
     sym.extra = try self.addSymbolExtra(gpa, .{});
     const nlist_idx: u32 = @intCast(self.symtab.items.len);
@@ -327,7 +329,7 @@ fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index
     };
     sym.nlist_idx = nlist_idx;
     try self.globals.append(gpa, 0);
-    atom.addExtra(.{ .literal_symbol_index = sym_index }, macho_file);
+    atom.addExtra(.{ .literal_symbol_index = @intFromEnum(sym_index) }, macho_file);
 
     return sym_index;
 }
@@ -338,25 +340,26 @@ pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !voi
 
     const gpa = macho_file.allocator;
 
-    var objc_msgsend_syms = std.StringArrayHashMap(MachO.Ref).init(gpa);
+    var objc_msgsend_syms = std.StringArrayHashMap(Symbol.UnwrappedRef).init(gpa);
     defer objc_msgsend_syms.deinit();
 
     for (macho_file.objects.items) |index| {
         const object = macho_file.getFile(index).?.object;
 
         for (object.symbols.items, 0..) |sym, i| {
+            const sym_index: Symbol.Index = @enumFromInt(i);
             const nlist = object.symtab.items(.nlist)[i];
             if (!nlist.ext()) continue;
             if (!nlist.undf()) continue;
 
-            const ref = object.getSymbolRef(@intCast(i), macho_file);
-            if (ref.getFile(macho_file) != null) continue;
+            const ref = object.getSymbolRef(sym_index, macho_file);
+            if (ref.unwrap() != null) continue;
 
             const name = sym.getName(macho_file);
             if (mem.startsWith(u8, name, "_objc_msgSend$")) {
                 const gop = try objc_msgsend_syms.getOrPut(name);
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = .{ .index = @intCast(i), .file = index };
+                    gop.value_ptr.* = sym_index.toRef(index).unwrap().?;
                 }
             }
         }
@@ -368,7 +371,7 @@ pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !voi
 
         const name_off = try self.addString(gpa, sym_name);
         const sym_index = try self.addSymbol(gpa);
-        const sym = &self.symbols.items[sym_index];
+        const sym = &self.symbols.items[@intFromEnum(sym_index)];
         sym.name = name_off;
         sym.visibility = .hidden;
         const nlist_idx: u32 = @intCast(self.symtab.items.len);
@@ -381,12 +384,12 @@ pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !voi
             .n_value = 0,
         };
         sym.nlist_idx = nlist_idx;
-        sym.extra = try self.addSymbolExtra(gpa, .{ .objc_selrefs = selrefs_index });
+        sym.extra = try self.addSymbolExtra(gpa, .{ .objc_selrefs = @intFromEnum(selrefs_index) });
         sym.setSectionFlags(.{ .objc_stubs = true });
 
-        const idx = ref.getFile(macho_file).?.object.globals.items[ref.index];
+        const idx = ref.getFile(macho_file).object.globals.items[@intFromEnum(ref.symbol)];
         try self.globals.append(gpa, idx);
-        macho_file.resolver.values.items[idx - 1] = .{ .index = sym_index, .file = self.index };
+        macho_file.resolver.values.items[idx - 1] = sym_index.toRef(self.index);
     }
 }
 
@@ -414,7 +417,8 @@ pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file
         const res = try lp.insert(gpa, header.type(), buffer.items);
         buffer.clearRetainingCapacity();
         if (!res.found_existing) {
-            res.ref.* = .{ .index = atom.getExtra(macho_file).literal_symbol_index, .file = self.index };
+            const literal_symbol_index: Symbol.Index = @enumFromInt(atom.getExtra(macho_file).literal_symbol_index);
+            res.ref.* = literal_symbol_index.toRef(self.index).unwrap().?;
         } else {
             const lp_sym = lp.getSymbol(res.index, macho_file);
             const lp_atom = lp_sym.getAtom(macho_file).?;
@@ -440,10 +444,10 @@ pub fn dedupLiterals(self: *InternalObject, lp: MachO.LiteralPool, macho_file: *
         };
         for (relocs) |*rel| {
             if (rel.tag != .@"extern") continue;
-            const target_sym_ref = rel.getTargetSymbolRef(atom.*, macho_file);
-            const file = target_sym_ref.getFile(macho_file) orelse continue;
+            const target_sym_ref = rel.getTargetSymbolRef(atom.*, macho_file).unwrap() orelse continue;
+            const file = target_sym_ref.getFile(macho_file);
             if (file.getIndex() != self.index) continue;
-            const target_sym = target_sym_ref.getSymbol(macho_file).?;
+            const target_sym = target_sym_ref.getSymbol(macho_file);
             const target_atom = target_sym.getAtom(macho_file) orelse continue;
             if (!Object.isPtrLiteral(target_atom.getInputSection(macho_file))) continue;
             const lp_index = target_atom.getExtra(macho_file).literal_pool_index;
@@ -480,20 +484,20 @@ pub fn scanRelocs(self: *InternalObject, macho_file: *MachO) void {
     defer tracy.end();
 
     if (self.getEntryRef(macho_file)) |ref| {
-        if (ref.getFile(macho_file) != null) {
-            const sym = ref.getSymbol(macho_file).?;
+        if (ref.unwrap()) |unwrapped| {
+            const sym = unwrapped.getSymbol(macho_file);
             if (sym.flags.import) sym.setSectionFlags(.{ .stubs = true });
         }
     }
     if (self.getDyldStubBinderRef(macho_file)) |ref| {
-        if (ref.getFile(macho_file) != null) {
-            const sym = ref.getSymbol(macho_file).?;
+        if (ref.unwrap()) |unwrapped| {
+            const sym = unwrapped.getSymbol(macho_file);
             sym.setSectionFlags(.{ .got = true });
         }
     }
     if (self.getObjcMsgSendRef(macho_file)) |ref| {
-        if (ref.getFile(macho_file) != null) {
-            const sym = ref.getSymbol(macho_file).?;
+        if (ref.unwrap()) |unwrapped| {
+            const sym = unwrapped.getSymbol(macho_file);
             // TODO is it always needed, or only if we are synthesising fast stubs
             sym.setSectionFlags(.{ .got = true });
         }
@@ -515,23 +519,23 @@ pub fn checkUndefs(self: InternalObject, macho_file: *MachO) !void {
 
     for (self.force_undefined.items) |index| {
         const ref = self.getSymbolRef(index, macho_file);
-        if (ref.getFile(macho_file) == null) {
-            try addUndef(macho_file, self.globals.items[index], .force_undefined);
+        if (ref.unwrap() == null) {
+            try addUndef(macho_file, self.globals.items[@intFromEnum(index)], .force_undefined);
         }
     }
     if (self.getEntryRef(macho_file)) |ref| {
-        if (ref.getFile(macho_file) == null) {
-            try addUndef(macho_file, self.globals.items[self.entry_index.?], .entry);
+        if (ref.unwrap() == null) {
+            try addUndef(macho_file, self.globals.items[@intFromEnum(self.entry_index.?)], .entry);
         }
     }
     if (self.getDyldStubBinderRef(macho_file)) |ref| {
-        if (ref.getFile(macho_file) == null and macho_file.stubs.symbols.items.len > 0) {
-            try addUndef(macho_file, self.globals.items[self.dyld_stub_binder_index.?], .dyld_stub_binder);
+        if (ref.unwrap() == null and macho_file.stubs.symbols.items.len > 0) {
+            try addUndef(macho_file, self.globals.items[@intFromEnum(self.dyld_stub_binder_index.?)], .dyld_stub_binder);
         }
     }
     if (self.getObjcMsgSendRef(macho_file)) |ref| {
-        if (ref.getFile(macho_file) == null and self.needsObjcMsgsendSymbol()) {
-            try addUndef(macho_file, self.globals.items[self.objc_msg_send_index.?], .objc_msgsend);
+        if (ref.unwrap() == null and self.needsObjcMsgsendSymbol()) {
+            try addUndef(macho_file, self.globals.items[@intFromEnum(self.objc_msg_send_index.?)], .objc_msgsend);
         }
     }
 }
@@ -540,10 +544,10 @@ pub fn allocateSyntheticSymbols(self: *InternalObject, macho_file: *MachO) void 
     const text_seg = macho_file.getTextSegment();
 
     if (self.mh_execute_header_index) |index| {
-        const ref = self.getSymbolRef(index, macho_file);
-        if (ref.getFile(macho_file)) |file| {
+        if (self.getSymbolRef(index, macho_file).unwrap()) |ref| {
+            const file = ref.getFile(macho_file);
             if (file.getIndex() == self.index) {
-                const sym = &self.symbols.items[index];
+                const sym = &self.symbols.items[@intFromEnum(index)];
                 sym.value = text_seg.vmaddr;
             }
         }
@@ -557,10 +561,10 @@ pub fn allocateSyntheticSymbols(self: *InternalObject, macho_file: *MachO) void 
             self.dyld_private_index,
         }) |maybe_index| {
             if (maybe_index) |index| {
-                const ref = self.getSymbolRef(index, macho_file);
-                if (ref.getFile(macho_file)) |file| {
+                if (self.getSymbolRef(index, macho_file).unwrap()) |ref| {
+                    const file = ref.getFile(macho_file);
                     if (file.getIndex() == self.index) {
-                        const sym = &self.symbols.items[index];
+                        const sym = &self.symbols.items[@intFromEnum(index)];
                         sym.value = sect.addr;
                         sym.out_n_sect = idx;
                     }
@@ -572,8 +576,8 @@ pub fn allocateSyntheticSymbols(self: *InternalObject, macho_file: *MachO) void 
 
 pub fn calcSymtabSize(self: *InternalObject, macho_file: *MachO) void {
     for (self.symbols.items, 0..) |*sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        const file = ref.getFile(macho_file) orelse continue;
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+        const file = ref.getFile(macho_file);
         if (file.getIndex() != self.index) continue;
         if (sym.getName(macho_file).len == 0) continue;
         if (macho_file.options.strip_locals and sym.isLocal()) continue;
@@ -612,8 +616,8 @@ pub fn writeAtoms(self: *InternalObject, macho_file: *MachO) !void {
 pub fn writeSymtab(self: InternalObject, macho_file: *MachO) void {
     var n_strx = self.output_symtab_ctx.stroff;
     for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        const file = ref.getFile(macho_file) orelse continue;
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+        const file = ref.getFile(macho_file);
         if (file.getIndex() != self.index) continue;
         const idx = sym.getOutputSymtabIndex(macho_file) orelse continue;
         const out_sym = &macho_file.symtab.items[idx];
@@ -736,22 +740,22 @@ pub fn setAtomExtra(self: *InternalObject, index: u32, extra: Atom.Extra) void {
     }
 }
 
-pub fn getEntryRef(self: InternalObject, macho_file: *MachO) ?MachO.Ref {
+pub fn getEntryRef(self: InternalObject, macho_file: *MachO) ?Symbol.Ref {
     const index = self.entry_index orelse return null;
     return self.getSymbolRef(index, macho_file);
 }
 
-pub fn getDyldStubBinderRef(self: InternalObject, macho_file: *MachO) ?MachO.Ref {
+pub fn getDyldStubBinderRef(self: InternalObject, macho_file: *MachO) ?Symbol.Ref {
     const index = self.dyld_stub_binder_index orelse return null;
     return self.getSymbolRef(index, macho_file);
 }
 
-pub fn getDyldPrivateRef(self: InternalObject, macho_file: *MachO) ?MachO.Ref {
+pub fn getDyldPrivateRef(self: InternalObject, macho_file: *MachO) ?Symbol.Ref {
     const index = self.dyld_private_index orelse return null;
     return self.getSymbolRef(index, macho_file);
 }
 
-pub fn getObjcMsgSendRef(self: InternalObject, macho_file: *MachO) ?MachO.Ref {
+pub fn getObjcMsgSendRef(self: InternalObject, macho_file: *MachO) ?Symbol.Ref {
     const index = self.objc_msg_send_index orelse return null;
     return self.getSymbolRef(index, macho_file);
 }
@@ -762,16 +766,16 @@ pub fn addSymbol(self: *InternalObject, allocator: Allocator) !Symbol.Index {
 }
 
 pub fn addSymbolAssumeCapacity(self: *InternalObject) Symbol.Index {
-    const index: Symbol.Index = @intCast(self.symbols.items.len);
+    const index: Symbol.Index = @enumFromInt(self.symbols.items.len);
     const symbol = self.symbols.addOneAssumeCapacity();
     symbol.* = .{ .file = self.index };
     return index;
 }
 
-pub fn getSymbolRef(self: InternalObject, index: Symbol.Index, macho_file: *MachO) MachO.Ref {
-    const global_index = self.globals.items[index];
+pub fn getSymbolRef(self: InternalObject, index: Symbol.Index, macho_file: *MachO) Symbol.Ref {
+    const global_index = self.globals.items[@intFromEnum(index)];
     if (macho_file.resolver.get(global_index)) |ref| return ref;
-    return .{ .index = index, .file = self.index };
+    return index.toRef(self.index);
 }
 
 pub fn addSymbolExtra(self: *InternalObject, allocator: Allocator, extra: Symbol.Extra) !u32 {
@@ -869,12 +873,11 @@ fn formatSymtab(
     const self = ctx.self;
     try writer.writeAll("  symbols\n");
     for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        if (ref.getFile(macho_file) == null) {
-            // TODO any better way of handling this?
-            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file);
+        if (ref.unwrap()) |unwrapped| {
+            try writer.print("    {}\n", .{unwrapped.getSymbol(macho_file).fmt(macho_file)});
         } else {
-            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
         }
     }
 }

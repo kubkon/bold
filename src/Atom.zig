@@ -305,12 +305,12 @@ fn reportUndefSymbol(self: Atom, rel: Relocation, macho_file: *MachO) !bool {
     if (rel.tag == .local) return false;
 
     const file = self.getFile(macho_file);
-    const ref = file.getSymbolRef(rel.target, macho_file);
-    if (ref.getFile(macho_file) == null) {
+    const ref = file.getSymbolRef(rel.target.symbol, macho_file);
+    if (ref.unwrap() == null) {
         macho_file.undefs_mutex.lock();
         defer macho_file.undefs_mutex.unlock();
         const gpa = macho_file.allocator;
-        const gop = try macho_file.undefs.getOrPut(gpa, file.getGlobals()[rel.target]);
+        const gop = try macho_file.undefs.getOrPut(gpa, file.getGlobals()[@intFromEnum(rel.target.symbol)]); // TODO unsafe
         if (!gop.found_existing) {
             gop.value_ptr.* = .{ .atom_refs = .{} };
         }
@@ -341,7 +341,7 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
         const subtractor = if (rel.meta.has_subtractor) relocs[i - 1] else null;
 
         if (rel.tag == .@"extern") {
-            if (rel.getTargetSymbolRef(self, macho_file).getFile(macho_file) == null) continue;
+            if (rel.getTargetSymbolRef(self, macho_file).unwrap() == null) continue;
         }
 
         try stream.seekTo(rel_offset);
@@ -456,7 +456,8 @@ fn resolveRelocInner(
                 .aarch64 => {
                     const disp: i28 = math.cast(i28, S + A - P) orelse blk: {
                         const thunk = self.getThunk(macho_file);
-                        const S_: i64 = @intCast(thunk.getTargetAddress(rel.getTargetSymbolRef(self, macho_file), macho_file));
+                        const target_ref = rel.getTargetSymbolRef(self, macho_file).unwrap().?;
+                        const S_: i64 = @intCast(thunk.getTargetAddress(target_ref, macho_file));
                         break :blk math.cast(i28, S_ + A - P) orelse return error.Overflow;
                     };
                     aarch64.writeBranchImm(disp, code[rel_offset..][0..4]);

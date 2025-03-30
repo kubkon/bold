@@ -1,5 +1,5 @@
 pub const Entry = struct {
-    target: MachO.Ref,
+    target: Symbol.UnwrappedRef,
     offset: u64,
     segment_id: u8,
     addend: i64,
@@ -60,7 +60,7 @@ pub const Bind = struct {
                     const sym = rel.getTargetSymbol(atom.*, macho_file);
                     if (sym.isTlvInit(macho_file)) continue;
                     const entry = Entry{
-                        .target = rel.getTargetSymbolRef(atom.*, macho_file),
+                        .target = rel.getTargetSymbolRef(atom.*, macho_file).unwrap().?,
                         .offset = atom_addr + rel_offset - seg.vmaddr,
                         .segment_id = seg_id,
                         .addend = addend,
@@ -76,7 +76,7 @@ pub const Bind = struct {
             const seg_id = macho_file.sections.items(.segment_id)[sid];
             const seg = macho_file.segments.items[seg_id];
             for (macho_file.got.symbols.items, 0..) |ref, idx| {
-                const sym = ref.getSymbol(macho_file).?;
+                const sym = ref.getSymbol(macho_file);
                 const addr = macho_file.got.getAddress(@intCast(idx), macho_file);
                 const entry = Entry{
                     .target = ref,
@@ -95,7 +95,7 @@ pub const Bind = struct {
             const seg_id = macho_file.sections.items(.segment_id)[sid];
             const seg = macho_file.segments.items[seg_id];
             for (macho_file.stubs.symbols.items, 0..) |ref, idx| {
-                const sym = ref.getSymbol(macho_file).?;
+                const sym = ref.getSymbol(macho_file);
                 const addr = sect.addr + idx * @sizeOf(u64);
                 const bind_entry = Entry{
                     .target = ref,
@@ -114,7 +114,7 @@ pub const Bind = struct {
             const seg = macho_file.segments.items[seg_id];
 
             for (macho_file.tlv_ptr.symbols.items, 0..) |ref, idx| {
-                const sym = ref.getSymbol(macho_file).?;
+                const sym = ref.getSymbol(macho_file);
                 const addr = macho_file.tlv_ptr.getAddress(@intCast(idx), macho_file);
                 const entry = Entry{
                     .target = ref,
@@ -162,7 +162,7 @@ pub const Bind = struct {
         var addend: i64 = 0;
         var count: usize = 0;
         var skip: u64 = 0;
-        var target: ?MachO.Ref = null;
+        var target: ?Symbol.UnwrappedRef = null;
 
         var state: enum {
             start,
@@ -182,7 +182,7 @@ pub const Bind = struct {
                 state = .start;
                 target = current.target;
 
-                const sym = current.target.getSymbol(ctx).?;
+                const sym = current.target.getSymbol(ctx);
                 const name = sym.getName(ctx);
                 const flags: u8 = if (sym.weakRef(ctx)) macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT else 0;
                 const ordinal: i16 = ord: {
@@ -314,7 +314,7 @@ pub const WeakBind = struct {
                     const sym = rel.getTargetSymbol(atom.*, macho_file);
                     if (sym.isTlvInit(macho_file)) continue;
                     const entry = Entry{
-                        .target = rel.getTargetSymbolRef(atom.*, macho_file),
+                        .target = rel.getTargetSymbolRef(atom.*, macho_file).unwrap().?,
                         .offset = atom_addr + rel_offset - seg.vmaddr,
                         .segment_id = seg_id,
                         .addend = addend,
@@ -330,7 +330,7 @@ pub const WeakBind = struct {
             const seg_id = macho_file.sections.items(.segment_id)[sid];
             const seg = macho_file.segments.items[seg_id];
             for (macho_file.got.symbols.items, 0..) |ref, idx| {
-                const sym = ref.getSymbol(macho_file).?;
+                const sym = ref.getSymbol(macho_file);
                 const addr = macho_file.got.getAddress(@intCast(idx), macho_file);
                 const entry = Entry{
                     .target = ref,
@@ -350,7 +350,7 @@ pub const WeakBind = struct {
             const seg = macho_file.segments.items[seg_id];
 
             for (macho_file.stubs.symbols.items, 0..) |ref, idx| {
-                const sym = ref.getSymbol(macho_file).?;
+                const sym = ref.getSymbol(macho_file);
                 const addr = sect.addr + idx * @sizeOf(u64);
                 const bind_entry = Entry{
                     .target = ref,
@@ -369,7 +369,7 @@ pub const WeakBind = struct {
             const seg = macho_file.segments.items[seg_id];
 
             for (macho_file.tlv_ptr.symbols.items, 0..) |ref, idx| {
-                const sym = ref.getSymbol(macho_file).?;
+                const sym = ref.getSymbol(macho_file);
                 const addr = macho_file.tlv_ptr.getAddress(@intCast(idx), macho_file);
                 const entry = Entry{
                     .target = ref,
@@ -417,7 +417,7 @@ pub const WeakBind = struct {
         var addend: i64 = 0;
         var count: usize = 0;
         var skip: u64 = 0;
-        var target: ?MachO.Ref = null;
+        var target: ?Symbol.UnwrappedRef = null;
 
         var state: enum {
             start,
@@ -437,7 +437,7 @@ pub const WeakBind = struct {
                 state = .start;
                 target = current.target;
 
-                const sym = current.target.getSymbol(ctx).?;
+                const sym = current.target.getSymbol(ctx);
                 const name = sym.getName(ctx);
                 const flags: u8 = 0; // TODO NON_WEAK_DEFINITION
 
@@ -543,7 +543,7 @@ pub const LazyBind = struct {
         const seg = macho_file.segments.items[seg_id];
 
         for (macho_file.stubs.symbols.items, 0..) |ref, idx| {
-            const sym = ref.getSymbol(macho_file).?;
+            const sym = ref.getSymbol(macho_file);
             const addr = sect.addr + idx * @sizeOf(u64);
             const bind_entry = Entry{
                 .target = ref,
@@ -573,7 +573,7 @@ pub const LazyBind = struct {
         for (self.entries.items) |entry| {
             self.offsets.appendAssumeCapacity(@as(u32, @intCast(cwriter.bytes_written)));
 
-            const sym = entry.target.getSymbol(ctx).?;
+            const sym = entry.target.getSymbol(ctx);
             const name = sym.getName(ctx);
             const flags: u8 = if (sym.weakRef(ctx)) macho.BIND_SYMBOL_FLAGS_WEAK_IMPORT else 0;
             const ordinal: i16 = ord: {

@@ -657,7 +657,8 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
                 const atom_data = data[atom.off..][0..atom.size];
                 const res = try lp.insert(gpa, header.type(), atom_data);
                 if (!res.found_existing) {
-                    res.ref.* = .{ .index = atom.getExtra(macho_file).literal_symbol_index, .file = self.index };
+                    const literal_symbol_index: Symbol.Index = @enumFromInt(atom.getExtra(macho_file).literal_symbol_index);
+                    res.ref.* = literal_symbol_index.toRef(self.index).unwrap().?;
                 } else {
                     const lp_sym = lp.getSymbol(res.index, macho_file);
                     const lp_atom = lp_sym.getAtom(macho_file).?;
@@ -688,7 +689,8 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
                 const res = try lp.insert(gpa, header.type(), buffer.items[addend..]);
                 buffer.clearRetainingCapacity();
                 if (!res.found_existing) {
-                    res.ref.* = .{ .index = atom.getExtra(macho_file).literal_symbol_index, .file = self.index };
+                    const literal_symbol_index: Symbol.Index = @enumFromInt(atom.getExtra(macho_file).literal_symbol_index);
+                    res.ref.* = literal_symbol_index.toRef(self.index).unwrap().?;
                 } else {
                     const lp_sym = lp.getSymbol(res.index, macho_file);
                     const lp_atom = lp_sym.getAtom(macho_file).?;
@@ -716,10 +718,10 @@ pub fn dedupLiterals(self: *Object, lp: MachO.LiteralPool, macho_file: *MachO) v
         };
         for (relocs) |*rel| {
             if (rel.tag != .@"extern") continue;
-            const target_sym_ref = rel.getTargetSymbolRef(atom.*, macho_file);
-            const file = target_sym_ref.getFile(macho_file) orelse continue;
+            const target_sym_ref = rel.getTargetSymbolRef(atom.*, macho_file).unwrap() orelse continue;
+            const file = target_sym_ref.getFile(macho_file);
             if (file.getIndex() != self.index) continue;
-            const target_sym = target_sym_ref.getSymbol(macho_file).?;
+            const target_sym = target_sym_ref.getSymbol(macho_file);
             const target_atom = target_sym.getAtom(macho_file) orelse continue;
             const isec = target_atom.getInputSection(macho_file);
             if (!Object.isCstringLiteral(isec) and !Object.isFixedSizeLiteral(isec) and !Object.isPtrLiteral(isec)) continue;
@@ -842,7 +844,7 @@ fn initSymbols(self: *Object, allocator: Allocator, macho_file: *MachO) !void {
 
     for (slice.items(.nlist), slice.items(.atom), 0..) |nlist, atom_index, i| {
         const index = self.addSymbolAssumeCapacity();
-        const symbol = &self.symbols.items[index];
+        const symbol = &self.symbols.items[@intFromEnum(index)];
         symbol.value = nlist.n_value;
         symbol.name = .{ .pos = nlist.n_strx, .len = @intCast(self.getNStrx(nlist.n_strx).len + 1) };
         symbol.nlist_idx = @intCast(i);
@@ -888,12 +890,12 @@ fn initSymbolStabs(self: *Object, allocator: Allocator, nlists: anytype, macho_f
         ctx: *const Object,
         entries: @TypeOf(nlists),
 
-        fn find(fs: @This(), addr: u64) ?Symbol.Index {
+        fn find(fs: @This(), addr: u64) Symbol.OptionalIndex {
             // TODO binary search since we have the list sorted
             for (fs.entries) |nlist| {
-                if (nlist.nlist.n_value == addr) return @intCast(nlist.idx);
+                if (nlist.nlist.n_value == addr) return @enumFromInt(nlist.idx);
             }
-            return null;
+            return .none;
         }
     };
 
@@ -1113,7 +1115,7 @@ fn initEhFrameRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fi
                     });
                     return error.ParseFailed;
                 };
-                cie.personality = .{ .index = rel.target, .offset = rel.offset - cie.offset };
+                cie.personality = .{ .index = rel.target.symbol, .offset = rel.offset - cie.offset };
             },
             else => {},
         }
@@ -1127,12 +1129,12 @@ fn initUnwindRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fil
     const SymbolLookup = struct {
         ctx: *const Object,
 
-        fn find(fs: @This(), addr: u64) ?Symbol.Index {
+        fn find(fs: @This(), addr: u64) Symbol.OptionalIndex {
             for (0..fs.ctx.symbols.items.len) |i| {
                 const nlist = fs.ctx.symtab.items(.nlist)[i];
-                if (nlist.ext() and nlist.n_value == addr) return @intCast(i);
+                if (nlist.ext() and nlist.n_value == addr) return @enumFromInt(i);
             }
-            return null;
+            return .none;
         }
     };
 
@@ -1191,10 +1193,10 @@ fn initUnwindRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fil
                 },
                 16 => switch (rel.tag) { // personality function
                     .@"extern" => {
-                        out.personality = rel.target;
+                        out.personality = rel.target.symbol.toOptional();
                     },
-                    .local => if (sym_lookup.find(rec.personalityFunction)) |sym_index| {
-                        out.personality = sym_index;
+                    .local => if (sym_lookup.find(rec.personalityFunction).unwrap()) |sym_index| {
+                        out.personality = sym_index.toOptional();
                     } else {
                         macho_file.fatal("{}: {s},{s}: 0x{x}: bad relocation", .{
                             self.fmtPath(), header.segName(), header.sectName(), rel.offset,
@@ -1232,7 +1234,12 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
     // 3. if an atom doesn't have unwind info record but FDE is available, synthesise and tie
     // 4. if an atom doesn't have either, synthesise a null unwind info record
 
-    const Superposition = struct { atom: Atom.Index, size: u64, cu: ?UnwindInfo.Record.Index = null, fde: ?Fde.Index = null };
+    const Superposition = struct {
+        atom: Atom.Index,
+        size: u64,
+        cu: ?UnwindInfo.Record.Index = null,
+        fde: ?Fde.Index = null,
+    };
 
     var superposition = std.AutoArrayHashMap(u64, Superposition).init(allocator);
     defer superposition.deinit();
@@ -1263,12 +1270,12 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
     for (self.fdes.items, 0..) |fde, fde_index| {
         const atom = fde.getAtom(macho_file);
         const addr = atom.getInputAddress(macho_file) + fde.atom_offset;
-        superposition.getPtr(addr).?.fde = @intCast(fde_index);
+        superposition.getPtr(addr).?.fde = @enumFromInt(fde_index);
     }
 
     for (superposition.keys(), superposition.values()) |addr, meta| {
         if (meta.fde) |fde_index| {
-            const fde = &self.fdes.items[fde_index];
+            const fde = &self.fdes.items[@intFromEnum(fde_index)];
 
             if (meta.cu) |rec_index| {
                 const rec = self.getUnwindRecord(rec_index);
@@ -1277,7 +1284,7 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
                     fde.alive = false;
                 } else {
                     // Tie FDE to unwind record
-                    rec.fde = fde_index;
+                    rec.fde = fde_index.toOptional();
                 }
             } else {
                 // Synthesise new unwind info record
@@ -1287,7 +1294,7 @@ fn parseUnwindRecords(self: *Object, allocator: Allocator, cpu_arch: std.Target.
                 rec.length = @intCast(meta.size);
                 rec.atom = fde.atom;
                 rec.atom_offset = fde.atom_offset;
-                rec.fde = fde_index;
+                rec.fde = fde_index.toOptional();
                 switch (cpu_arch) {
                     .x86_64 => rec.enc.setMode(macho.UNWIND_X86_64_MODE.DWARF),
                     .aarch64 => rec.enc.setMode(macho.UNWIND_ARM64_MODE.DWARF),
@@ -1494,27 +1501,27 @@ pub fn resolveSymbols(self: *Object, macho_file: *MachO) !void {
             if (!atom.alive.load(.seq_cst)) continue;
         }
 
-        const gop = try macho_file.resolver.getOrPut(gpa, .{
-            .index = @intCast(i),
-            .file = self.index,
-        }, macho_file);
+        const sym_index: Symbol.Index = @enumFromInt(i);
+        const sym_ref = sym_index.toRef(self.index);
+        const gop = try macho_file.resolver.getOrPut(gpa, sym_ref.unwrap().?, macho_file);
         if (!gop.found_existing) {
-            gop.ref.* = .{ .index = 0, .file = 0 };
+            gop.ref.* = .none;
         }
         global.* = gop.index;
 
         if (nlist.undf() and !nlist.tentative()) continue;
-        if (gop.ref.getFile(macho_file) == null) {
-            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
+
+        const gop_unwrapped_ref = gop.ref.unwrap() orelse {
+            gop.ref.* = sym_ref;
             continue;
-        }
+        };
 
         if (self.asFile().getSymbolRank(.{
             .archive = !self.alive,
             .weak = nlist.weakDef(),
             .tentative = nlist.tentative(),
-        }) < gop.ref.getSymbol(macho_file).?.getSymbolRank(macho_file)) {
-            gop.ref.* = .{ .index = @intCast(i), .file = self.index };
+        }) < gop_unwrapped_ref.getSymbol(macho_file).getSymbolRank(macho_file)) {
+            gop.ref.* = sym_ref;
         }
     }
 }
@@ -1527,9 +1534,9 @@ pub fn markLive(self: *Object, macho_file: *MachO) void {
         const nlist = self.symtab.items(.nlist)[i];
         if (!nlist.ext()) continue;
 
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        const file = ref.getFile(macho_file) orelse continue;
-        const sym = ref.getSymbol(macho_file).?;
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+        const file = ref.getFile(macho_file);
+        const sym = ref.getSymbol(macho_file);
         const should_keep = nlist.undf() or (nlist.tentative() and !sym.flags.tentative);
         if (should_keep and file == .object and !file.object.alive) {
             file.object.alive = true;
@@ -1543,9 +1550,9 @@ pub fn mergeSymbolVisibility(self: *Object, macho_file: *MachO) void {
     defer tracy.end();
 
     for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        const global = ref.getSymbol(macho_file) orelse continue;
-        if (global.getFile(macho_file).? != .dylib) {
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+        const global = ref.getSymbol(macho_file);
+        if (global.getFile(macho_file).? != .dylib) { // TODO: shouldn't this be ref.getFile() != .dylib?
             if (macho_file.isMarkedForExport(global.getName(macho_file))) |is_export| {
                 global.visibility = if (is_export) .global else .hidden;
                 continue;
@@ -1592,11 +1599,12 @@ pub fn convertTentativeDefinitions(self: *Object, macho_file: *MachO) !void {
 
     for (self.symbols.items, self.globals.items, 0..) |*sym, off, i| {
         if (!sym.flags.tentative) continue;
-        if (macho_file.resolver.get(off).?.file != self.index) continue;
+        const global_ref = macho_file.resolver.get(off) orelse continue;
+        const global_ref_unwrapped = global_ref.unwrap() orelse continue;
+        if (global_ref_unwrapped.file != self.index) continue;
 
-        const nlist_idx = @as(Symbol.Index, @intCast(i));
-        const nlist = &self.symtab.items(.nlist)[nlist_idx];
-        const nlist_atom = &self.symtab.items(.atom)[nlist_idx];
+        const nlist = &self.symtab.items(.nlist)[i];
+        const nlist_atom = &self.symtab.items(.atom)[i];
 
         const name = try std.fmt.allocPrintZ(gpa, "__DATA$__common${s}", .{sym.getName(macho_file)});
         defer gpa.free(name);
@@ -1641,7 +1649,8 @@ pub fn claimUnresolved(self: *Object, macho_file: *MachO) void {
         if (!nlist.ext()) continue;
         if (!nlist.undf()) continue;
 
-        if (self.getSymbolRef(@intCast(i), macho_file).getFile(macho_file) != null) continue;
+        const sym_index: Symbol.Index = @enumFromInt(i);
+        if (self.getSymbolRef(sym_index, macho_file).unwrap() != null) continue;
 
         const is_import = switch (macho_file.options.undefined_treatment) {
             .@"error" => false,
@@ -1657,7 +1666,7 @@ pub fn claimUnresolved(self: *Object, macho_file: *MachO) void {
             sym.visibility = .global;
 
             const idx = self.globals.items[i];
-            macho_file.resolver.values.items[idx - 1] = .{ .index = @intCast(i), .file = self.index };
+            macho_file.resolver.values.items[idx - 1] = sym_index.toRef(self.index);
         }
     }
 }
@@ -1669,7 +1678,9 @@ pub fn claimUnresolvedRelocatable(self: *Object, macho_file: *MachO) void {
     for (self.symbols.items, self.symtab.items(.nlist), 0..) |*sym, nlist, i| {
         if (!nlist.ext()) continue;
         if (!nlist.undf()) continue;
-        if (self.getSymbolRef(@intCast(i), macho_file).getFile(macho_file) != null) continue;
+
+        const sym_index: Symbol.Index = @enumFromInt(i);
+        if (self.getSymbolRef(sym_index, macho_file).unwrap() != null) continue;
 
         sym.value = 0;
         sym.atom_ref = .none;
@@ -1678,7 +1689,7 @@ pub fn claimUnresolvedRelocatable(self: *Object, macho_file: *MachO) void {
         sym.visibility = .global;
 
         const idx = self.globals.items[i];
-        macho_file.resolver.values.items[idx - 1] = .{ .index = @intCast(i), .file = self.index };
+        macho_file.resolver.values.items[idx - 1] = sym_index.toRef(self.index);
     }
 }
 
@@ -1706,14 +1717,16 @@ pub fn stripLocalsRelocatable(self: *Object, macho_file: *MachO) !void {
     const gpa = macho_file.allocator;
 
     for (self.symbols.items, 0..) |*sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        const file = ref.getFile(macho_file) orelse continue;
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+        const file = ref.getFile(macho_file);
         if (file.getIndex() != self.index) continue;
         if (sym.getAtom(macho_file)) |atom| if (!atom.alive.load(.seq_cst)) continue;
         if (sym.isSymbolStab(macho_file)) continue;
         if (!sym.isLocal()) continue;
         // Pad to
-        const name = try std.fmt.allocPrintZ(gpa, "l{d:0>3}", .{macho_file.strip_locals_counter.fetchAdd(1, .seq_cst)});
+        const name = try std.fmt.allocPrintZ(gpa, "l{d:0>3}", .{
+            macho_file.strip_locals_counter.fetchAdd(1, .seq_cst),
+        });
         defer gpa.free(name);
         sym.name = try self.addString(gpa, name);
     }
@@ -1724,8 +1737,8 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) void {
     defer tracy.end();
 
     for (self.symbols.items, 0..) |*sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        const file = ref.getFile(macho_file) orelse continue;
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+        const file = ref.getFile(macho_file);
         if (file.getIndex() != self.index) continue;
         if (sym.getAtom(macho_file)) |atom| if (!atom.alive.load(.seq_cst)) continue;
         if (sym.isSymbolStab(macho_file)) continue;
@@ -1776,8 +1789,8 @@ pub fn calcStabsSize(self: *Object, macho_file: *MachO) void {
         }
 
         for (self.symbols.items, 0..) |sym, i| {
-            const ref = self.getSymbolRef(@intCast(i), macho_file);
-            const file = ref.getFile(macho_file) orelse continue;
+            const ref = self.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+            const file = ref.getFile(macho_file);
             if (file.getIndex() != self.index) continue;
             if (!sym.flags.output_symtab) continue;
             if (macho_file.options.relocatable) {
@@ -1987,8 +2000,8 @@ pub fn writeSymtab(self: Object, macho_file: *MachO) void {
 
     var n_strx = self.output_symtab_ctx.stroff;
     for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        const file = ref.getFile(macho_file) orelse continue;
+        const ref = self.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+        const file = ref.getFile(macho_file);
         if (file.getIndex() != self.index) continue;
         const idx = sym.getOutputSymtabIndex(macho_file) orelse continue;
         const out_sym = &macho_file.symtab.items[idx];
@@ -2108,8 +2121,8 @@ pub fn writeStabs(self: *const Object, stroff: u32, macho_file: *MachO) void {
         }
 
         for (self.symbols.items, 0..) |sym, i| {
-            const ref = self.getSymbolRef(@intCast(i), macho_file);
-            const file = ref.getFile(macho_file) orelse continue;
+            const ref = self.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
+            const file = ref.getFile(macho_file);
             if (file.getIndex() != self.index) continue;
             if (!sym.flags.output_symtab) continue;
             if (macho_file.options.relocatable) {
@@ -2415,16 +2428,16 @@ fn addSymbol(self: *Object, allocator: Allocator) !Symbol.Index {
 }
 
 fn addSymbolAssumeCapacity(self: *Object) Symbol.Index {
-    const index: Symbol.Index = @intCast(self.symbols.items.len);
+    const index: Symbol.Index = @enumFromInt(self.symbols.items.len);
     const symbol = self.symbols.addOneAssumeCapacity();
     symbol.* = .{ .file = self.index };
     return index;
 }
 
-pub fn getSymbolRef(self: Object, index: Symbol.Index, macho_file: *MachO) MachO.Ref {
-    const global_index = self.globals.items[index];
+pub fn getSymbolRef(self: Object, index: Symbol.Index, macho_file: *MachO) Symbol.Ref {
+    const global_index = self.globals.items[@intFromEnum(index)];
     if (macho_file.resolver.get(global_index)) |ref| return ref;
-    return .{ .index = index, .file = self.index };
+    return index.toRef(self.index);
 }
 
 pub fn addSymbolExtra(self: *Object, allocator: Allocator, extra: Symbol.Extra) !u32 {
@@ -2475,15 +2488,14 @@ fn addUnwindRecord(self: *Object, allocator: Allocator) !UnwindInfo.Record.Index
 }
 
 fn addUnwindRecordAssumeCapacity(self: *Object) UnwindInfo.Record.Index {
-    const index = @as(UnwindInfo.Record.Index, @intCast(self.unwind_records.items.len));
+    const index: UnwindInfo.Record.Index = @enumFromInt(self.unwind_records.items.len);
     const rec = self.unwind_records.addOneAssumeCapacity();
     rec.* = .{ .atom = undefined, .file = self.index };
     return index;
 }
 
 pub fn getUnwindRecord(self: *Object, index: UnwindInfo.Record.Index) *UnwindInfo.Record {
-    assert(index < self.unwind_records.items.len);
-    return &self.unwind_records.items[index];
+    return &self.unwind_records.items[@intFromEnum(index)];
 }
 
 /// Caller owns the memory.
@@ -2624,12 +2636,11 @@ fn formatSymtab(
     const macho_file = ctx.macho_file;
     try writer.writeAll("  symbols\n");
     for (object.symbols.items, 0..) |sym, i| {
-        const ref = object.getSymbolRef(@intCast(i), macho_file);
-        if (ref.getFile(macho_file) == null) {
-            // TODO any better way of handling this?
-            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+        const ref = object.getSymbolRef(@enumFromInt(i), macho_file);
+        if (ref.unwrap()) |unwrapped| {
+            try writer.print("    {}\n", .{unwrapped.getSymbol(macho_file).fmt(macho_file)});
         } else {
-            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
         }
     }
     for (object.stab_files.items) |sf| {
@@ -2707,11 +2718,11 @@ const StabFile = struct {
 
     const Stab = struct {
         is_func: bool = true,
-        index: ?Symbol.Index = null,
+        index: Symbol.OptionalIndex = .none,
 
         fn getSymbol(stab: Stab, object: *const Object) ?*Symbol {
-            const index = stab.index orelse return null;
-            return &object.symbols.items[index];
+            const index = stab.index.unwrap() orelse return null;
+            return &object.symbols.items[@intFromEnum(index)];
         }
 
         pub fn format(
@@ -2744,11 +2755,11 @@ const StabFile = struct {
             const stab, const object = ctx;
             const sym = stab.getSymbol(object).?;
             if (stab.is_func) {
-                try writer.print("func({d})", .{stab.index.?});
+                try writer.print("func({d})", .{stab.index.unwrap().?});
             } else if (sym.visibility == .global) {
-                try writer.print("gsym({d})", .{stab.index.?});
+                try writer.print("gsym({d})", .{stab.index.unwrap().?});
             } else {
-                try writer.print("stsym({d})", .{stab.index.?});
+                try writer.print("stsym({d})", .{stab.index.unwrap().?});
             }
         }
     };
@@ -2816,7 +2827,7 @@ const x86_64 = struct {
             };
             var is_extern = rel.r_extern == 1;
 
-            const target: u32 = if (!is_extern) blk: {
+            const target: Relocation.Target = if (!is_extern) blk: {
                 const nsect = rel.r_symbolnum - 1;
                 const taddr: i64 = if (rel.r_pcrel == 1)
                     @as(i64, @intCast(sect.addr)) + rel.r_address + addend + 4
@@ -2833,10 +2844,10 @@ const x86_64 = struct {
                 const isec = target_atom.getInputSection(macho_file);
                 if (isCstringLiteral(isec) or isFixedSizeLiteral(isec) or isPtrLiteral(isec)) {
                     is_extern = true;
-                    break :blk target_atom.getExtra(macho_file).literal_symbol_index;
+                    break :blk .{ .symbol = @enumFromInt(target_atom.getExtra(macho_file).literal_symbol_index) };
                 }
-                break :blk @intFromEnum(target); // TODO: this cast should not be needed
-            } else rel.r_symbolnum;
+                break :blk .{ .atom = target };
+            } else .{ .symbol = @enumFromInt(rel.r_symbolnum) };
 
             const has_subtractor = if (i > 0 and
                 @as(macho.reloc_type_x86_64, @enumFromInt(relocs[i - 1].r_type)) == .X86_64_RELOC_SUBTRACTOR)
@@ -3002,7 +3013,7 @@ const aarch64 = struct {
             const rel_type: macho.reloc_type_arm64 = @enumFromInt(rel.r_type);
             var is_extern = rel.r_extern == 1;
 
-            const target: u32 = if (!is_extern) blk: {
+            const target: Relocation.Target = if (!is_extern) blk: {
                 const nsect = rel.r_symbolnum - 1;
                 const taddr: i64 = if (rel.r_pcrel == 1)
                     @as(i64, @intCast(sect.addr)) + rel.r_address + addend
@@ -3019,10 +3030,10 @@ const aarch64 = struct {
                 const isec = target_atom.getInputSection(macho_file);
                 if (isCstringLiteral(isec) or isFixedSizeLiteral(isec) or isPtrLiteral(isec)) {
                     is_extern = true;
-                    break :blk target_atom.getExtra(macho_file).literal_symbol_index;
+                    break :blk .{ .symbol = @enumFromInt(target_atom.getExtra(macho_file).literal_symbol_index) };
                 }
-                break :blk @intFromEnum(target); // TODO: this cast should not be needed
-            } else rel.r_symbolnum;
+                break :blk .{ .atom = target };
+            } else .{ .symbol = @enumFromInt(rel.r_symbolnum) };
 
             const has_subtractor = if (i > 0 and
                 @as(macho.reloc_type_arm64, @enumFromInt(relocs[i - 1].r_type)) == .ARM64_RELOC_SUBTRACTOR)
