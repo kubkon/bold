@@ -122,7 +122,6 @@ pub fn deinit(self: *MachO) void {
     self.dylibs.deinit(gpa);
 
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
-        .null => {},
         .internal => data.internal.deinit(gpa),
         .object => data.object.deinit(gpa),
         .dylib => data.dylib.deinit(gpa),
@@ -167,8 +166,6 @@ pub fn link(self: *MachO) !void {
 
     // Append empty string to string tables
     try self.strtab.append(gpa, 0);
-    // Append null file
-    try self.files.append(gpa, .null);
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -254,8 +251,9 @@ pub fn link(self: *MachO) !void {
     try self.parseDependentDylibs(arena, lib_dirs.items, framework_dirs.items);
 
     if (!self.options.relocatable) {
-        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-        self.files.set(index, .{ .internal = .{ .index = index } });
+        const raw_index = try self.files.addOne(gpa);
+        const index: File.Index = @enumFromInt(raw_index);
+        self.files.set(raw_index, .{ .internal = .{ .index = index } });
         self.internal_object_index = index;
         const object = self.getInternalObject().?;
         try object.init(gpa);
@@ -279,7 +277,7 @@ pub fn link(self: *MachO) !void {
     try self.deadStripDylibs();
 
     for (self.dylibs.items, 1..) |index, ord| {
-        const dylib = self.getFile(index).?.dylib;
+        const dylib = self.getFile(index).dylib;
         dylib.ordinal = @intCast(ord);
     }
 
@@ -678,8 +676,9 @@ fn addObject(self: *MachO, obj: LinkObject, handle: File.HandleIndex, offset: u6
         break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
     };
 
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-    self.files.set(index, .{ .object = .{
+    const raw_index = try self.files.addOne(gpa);
+    const index: File.Index = @enumFromInt(raw_index);
+    self.files.set(raw_index, .{ .object = .{
         .offset = offset,
         .path = try gpa.dupe(u8, obj.path),
         .file_handle = handle,
@@ -711,7 +710,7 @@ fn parseInputFiles(self: *MachO) !void {
 }
 
 fn parseObjectWorker(self: *MachO, index: File.Index) void {
-    const object = self.getFile(index).?.object;
+    const object = self.getFile(index).object;
     object.parse(self) catch |err| {
         switch (err) {
             error.ParseFailed => {}, // reported
@@ -735,9 +734,10 @@ fn addArchive(self: *MachO, obj: LinkObject, handle: File.HandleIndex, fat_arch:
     try archive.parse(self, obj.path, handle, fat_arch);
 
     for (archive.objects.items) |extracted| {
-        const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-        self.files.set(index, .{ .object = extracted });
-        const object = &self.files.items(.data)[index].object;
+        const raw_index = try self.files.addOne(gpa);
+        const index: File.Index = @enumFromInt(raw_index);
+        self.files.set(raw_index, .{ .object = extracted });
+        const object = &self.files.items(.data)[raw_index].object;
         object.index = index;
         object.alive = obj.must_link or obj.needed or self.options.all_load;
         object.hidden = obj.hidden;
@@ -758,8 +758,9 @@ fn addDylib(self: *MachO, obj: LinkObject, handle: File.HandleIndex, offset: u64
     defer tracy.end();
 
     const gpa = self.allocator;
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-    self.files.set(index, .{ .dylib = .{
+    const raw_index = try self.files.addOne(gpa);
+    const index: File.Index = @enumFromInt(raw_index);
+    self.files.set(raw_index, .{ .dylib = .{
         .offset = offset,
         .file_handle = handle,
         .path = obj.path,
@@ -781,8 +782,9 @@ fn addTbd(self: *MachO, obj: LinkObject, lib_stub: LibStub, explicit: bool) anye
 
     const gpa = self.allocator;
 
-    const index = @as(File.Index, @intCast(try self.files.addOne(gpa)));
-    self.files.set(index, .{ .dylib = .{
+    const raw_index = try self.files.addOne(gpa);
+    const index: File.Index = @enumFromInt(raw_index);
+    self.files.set(raw_index, .{ .dylib = .{
         .offset = 0,
         .lib_stub = lib_stub,
         .path = obj.path,
@@ -799,7 +801,7 @@ fn addTbd(self: *MachO, obj: LinkObject, lib_stub: LibStub, explicit: bool) anye
 }
 
 fn parseDylibWorker(self: *MachO, index: File.Index) void {
-    const dylib = self.getFile(index).?.dylib;
+    const dylib = self.getFile(index).dylib;
     dylib.parse(self) catch |err| {
         switch (err) {
             error.ParseFailed => {}, // reported already
@@ -851,12 +853,12 @@ fn parseDependentDylibs(
     while (index < self.dylibs.items.len) : (index += 1) {
         const dylib_index = self.dylibs.items[index];
 
-        var dependents = std.ArrayList(File.Index).init(gpa);
+        var dependents = std.ArrayList(File.OptionalIndex).init(gpa);
         defer dependents.deinit();
-        try dependents.ensureTotalCapacityPrecise(self.getFile(dylib_index).?.dylib.dependents.items.len);
+        try dependents.ensureTotalCapacityPrecise(self.getFile(dylib_index).dylib.dependents.items.len);
 
-        const is_weak = self.getFile(dylib_index).?.dylib.weak;
-        for (self.getFile(dylib_index).?.dylib.dependents.items) |id| {
+        const is_weak = self.getFile(dylib_index).dylib.weak;
+        for (self.getFile(dylib_index).dylib.dependents.items) |id| {
             // We will search for the dependent dylibs in the following order:
             // 1. Basename is in search lib directories or framework directories
             // 2. If name is an absolute path, search as-is optionally prepending a syslibroot
@@ -897,8 +899,8 @@ fn parseDependentDylibs(
                 }
 
                 if (eatPrefix(id.name, "@rpath/")) |path| {
-                    const dylib = self.getFile(dylib_index).?.dylib;
-                    for (self.getFile(dylib.umbrella).?.dylib.rpaths.keys()) |rpath| {
+                    const dylib = self.getFile(dylib_index).dylib;
+                    for (self.getFile(dylib.umbrella).dylib.rpaths.keys()) |rpath| {
                         const prefix = eatPrefix(rpath, "@loader_path/") orelse rpath;
                         const rel_path = try std.fs.path.join(arena, &.{ prefix, path });
                         var buffer: [std.fs.max_path_bytes]u8 = undefined;
@@ -907,11 +909,11 @@ fn parseDependentDylibs(
                     }
                 } else if (eatPrefix(id.name, "@loader_path/")) |_| {
                     return self.fatal("{s}: TODO handle install_name '{s}'", .{
-                        self.getFile(dylib_index).?.dylib.path, id.name,
+                        self.getFile(dylib_index).dylib.path, id.name,
                     });
                 } else if (eatPrefix(id.name, "@executable_path/")) |_| {
                     return self.fatal("{s}: TODO handle install_name '{s}'", .{
-                        self.getFile(dylib_index).?.dylib.path, id.name,
+                        self.getFile(dylib_index).dylib.path, id.name,
                     });
                 }
 
@@ -919,7 +921,7 @@ fn parseDependentDylibs(
                 if (std.fs.realpath(id.name, &buffer)) |full_path| {
                     break :full_path try arena.dupe(u8, full_path);
                 } else |_| {
-                    dependents.appendAssumeCapacity(0);
+                    dependents.appendAssumeCapacity(.none);
                     continue;
                 }
             };
@@ -934,23 +936,24 @@ fn parseDependentDylibs(
             const fat_arch = try self.parseFatFile(link_obj, file);
             const offset = if (fat_arch) |fa| fa.offset else 0;
 
-            const file_index = file_index: {
+            const file_index: File.OptionalIndex = file_index: {
                 if (readMachHeader(file, offset) catch null) |h| blk: {
                     if (h.magic != macho.MH_MAGIC_64) break :blk;
                     switch (h.filetype) {
-                        macho.MH_DYLIB => break :file_index try self.addDylib(link_obj, fh, offset, false),
-                        else => break :file_index @as(File.Index, 0),
+                        macho.MH_DYLIB => break :file_index (try self.addDylib(link_obj, fh, offset, false)).toOptional(),
+                        else => break :file_index .none,
                     }
                 }
-                const lib_stub = LibStub.loadFromFile(gpa, file) catch break :file_index @as(File.Index, 0);
-                break :file_index try self.addTbd(link_obj, lib_stub, false);
+                const lib_stub = LibStub.loadFromFile(gpa, file) catch break :file_index .none;
+                break :file_index (try self.addTbd(link_obj, lib_stub, false)).toOptional();
             };
             dependents.appendAssumeCapacity(file_index);
         }
 
-        const dylib = self.getFile(dylib_index).?.dylib;
-        for (dylib.dependents.items, dependents.items) |id, file_index| {
-            if (self.getFile(file_index)) |file| {
+        const dylib = self.getFile(dylib_index).dylib;
+        for (dylib.dependents.items, dependents.items) |id, opt_file_index| {
+            if (opt_file_index.unwrap()) |file_index| {
+                const file = self.getFile(file_index);
                 const dep_dylib = file.dylib;
                 try dep_dylib.parse(self); // TODO in parallel
                 dep_dylib.hoisted = self.isHoisted(id.name);
@@ -983,8 +986,8 @@ pub fn resolveSymbols(self: *MachO) !void {
     defer tracy.end();
 
     // Resolve symbols on the set of all objects and shared objects (even if some are unneeded).
-    for (self.objects.items) |index| try self.getFile(index).?.resolveSymbols(self);
-    for (self.dylibs.items) |index| try self.getFile(index).?.resolveSymbols(self);
+    for (self.objects.items) |index| try self.getFile(index).resolveSymbols(self);
+    for (self.dylibs.items) |index| try self.getFile(index).resolveSymbols(self);
     if (self.getInternalObject()) |obj| try obj.resolveSymbols(self);
 
     // Mark live objects.
@@ -997,20 +1000,21 @@ pub fn resolveSymbols(self: *MachO) !void {
     var i: usize = 0;
     while (i < self.objects.items.len) {
         const index = self.objects.items[i];
-        if (!self.getFile(index).?.object.alive) {
+        if (!self.getFile(index).object.alive) {
             _ = self.objects.orderedRemove(i);
-            self.files.items(.data)[index].object.deinit(self.allocator);
-            self.files.set(index, .null);
+            const object = &self.files.items(.data)[@intFromEnum(index)].object;
+            object.deinit(self.allocator);
+            object.* = undefined;
         } else i += 1;
     }
 
     // Re-resolve the symbols.
-    for (self.objects.items) |index| try self.getFile(index).?.resolveSymbols(self);
-    for (self.dylibs.items) |index| try self.getFile(index).?.resolveSymbols(self);
+    for (self.objects.items) |index| try self.getFile(index).resolveSymbols(self);
+    for (self.dylibs.items) |index| try self.getFile(index).resolveSymbols(self);
     if (self.getInternalObject()) |obj| try obj.resolveSymbols(self);
 
     // Merge symbol visibility
-    for (self.objects.items) |index| self.getFile(index).?.object.mergeSymbolVisibility(self);
+    for (self.objects.items) |index| self.getFile(index).object.mergeSymbolVisibility(self);
 }
 
 fn markLive(self: *MachO) void {
@@ -1018,7 +1022,7 @@ fn markLive(self: *MachO) void {
     defer tracy.end();
 
     for (self.objects.items) |index| {
-        const object = self.getFile(index).?.object;
+        const object = self.getFile(index).object;
         if (object.alive) object.markLive(self);
     }
     if (self.getInternalObject()) |obj| obj.markLive(self);
@@ -1029,7 +1033,7 @@ fn deadStripDylibs(self: *MachO) !void {
     defer tracy.end();
 
     for (self.dylibs.items) |index| {
-        self.getFile(index).?.dylib.markReferenced(self);
+        self.getFile(index).dylib.markReferenced(self);
     }
 
     var stripped = std.AutoHashMap(File.Index, void).init(self.allocator);
@@ -1039,11 +1043,12 @@ fn deadStripDylibs(self: *MachO) !void {
     var i: usize = 0;
     while (i < self.dylibs.items.len) {
         const index = self.dylibs.items[i];
-        if (!self.getFile(index).?.dylib.isAlive(self)) {
+        if (!self.getFile(index).dylib.isAlive(self)) {
             stripped.putAssumeCapacity(index, {});
             _ = self.dylibs.orderedRemove(i);
-            self.files.items(.data)[index].dylib.deinit(self.allocator);
-            self.files.set(index, .null);
+            const dylib = &self.files.items(.data)[@intFromEnum(index)].dylib;
+            dylib.deinit(self.allocator);
+            dylib.* = undefined;
         } else i += 1;
     }
 
@@ -1080,7 +1085,7 @@ fn convertTentativeDefinitionsWorker(self: *MachO, index: File.Index) void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const object = self.getFile(index).?.object;
+    const object = self.getFile(index).object;
     object.convertTentativeDefinitions(self) catch |err| {
         self.fatal("{s}: unexpected error occurred while converting tentative symbols into defined symbols: {s}", .{
             object.fmtPath(),
@@ -1113,7 +1118,7 @@ fn markImportsAndExports(self: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
     for (self.objects.items) |index| {
-        self.getFile(index).?.markImportsAndExports(self);
+        self.getFile(index).markImportsAndExports(self);
     }
     if (self.getInternalObject()) |obj| {
         obj.asFile().markImportsAndExports(self);
@@ -1124,7 +1129,7 @@ fn initOutputSections(self: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
     for (self.objects.items) |index| {
-        try self.getFile(index).?.initOutputSections(self);
+        try self.getFile(index).initOutputSections(self);
     }
     if (self.getInternalObject()) |object| {
         try object.asFile().initOutputSections(self);
@@ -1142,7 +1147,7 @@ pub fn dedupLiterals(self: *MachO) !void {
     defer lp.deinit(gpa);
 
     for (self.objects.items) |index| {
-        try self.getFile(index).?.object.resolveLiterals(&lp, self);
+        try self.getFile(index).object.resolveLiterals(&lp, self);
     }
     if (self.getInternalObject()) |object| {
         try object.resolveLiterals(&lp, self);
@@ -1153,7 +1158,7 @@ pub fn dedupLiterals(self: *MachO) !void {
         wg.reset();
         defer wg.wait();
         for (self.objects.items) |index| {
-            self.thread_pool.spawnWg(&wg, File.dedupLiterals, .{ self.getFile(index).?, lp, self });
+            self.thread_pool.spawnWg(&wg, File.dedupLiterals, .{ self.getFile(index), lp, self });
         }
         if (self.getInternalObject()) |object| {
             self.thread_pool.spawnWg(&wg, File.dedupLiterals, .{ object.asFile(), lp, self });
@@ -1165,7 +1170,7 @@ pub fn dedupLiterals(self: *MachO) !void {
 
 fn claimUnresolved(self: *MachO) void {
     for (self.objects.items) |index| {
-        self.getFile(index).?.object.claimUnresolved(self);
+        self.getFile(index).object.claimUnresolved(self);
     }
 }
 
@@ -1178,7 +1183,7 @@ fn checkDuplicates(self: *MachO) !void {
         wg.reset();
         defer wg.wait();
         for (self.objects.items) |index| {
-            self.thread_pool.spawnWg(&wg, checkDuplicatesWorker, .{ self, self.getFile(index).? });
+            self.thread_pool.spawnWg(&wg, checkDuplicatesWorker, .{ self, self.getFile(index) });
         }
         if (self.getInternalObject()) |object| {
             self.thread_pool.spawnWg(&wg, checkDuplicatesWorker, .{ self, object.asFile() });
@@ -1217,8 +1222,15 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
     keys.appendSliceAssumeCapacity(self.dupes.keys());
     self.sortGlobalSymbolsByName(keys.items);
 
+    const lessThan = struct {
+        fn lessThan(ctx: void, lhs: File.Index, rhs: File.Index) bool {
+            _ = ctx;
+            return lhs.lessThan(rhs);
+        }
+    }.lessThan;
+
     for (self.dupes.values()) |*refs| {
-        mem.sort(File.Index, refs.items, {}, std.sort.asc(File.Index));
+        mem.sort(File.Index, refs.items, {}, lessThan);
     }
 
     for (keys.items) |key| {
@@ -1233,7 +1245,7 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
-            const file = self.getFile(notes.items[inote]).?;
+            const file = self.getFile(notes.items[inote]);
             try err.addNote("defined by {}", .{file.fmtPath()});
         }
 
@@ -1255,7 +1267,7 @@ fn scanRelocs(self: *MachO) !void {
         wg.reset();
         defer wg.wait();
         for (self.objects.items) |index| {
-            self.thread_pool.spawnWg(&wg, scanRelocsWorker, .{ self, self.getFile(index).? });
+            self.thread_pool.spawnWg(&wg, scanRelocsWorker, .{ self, self.getFile(index) });
         }
         if (self.getInternalObject()) |obj| {
             self.thread_pool.spawnWg(&wg, scanRelocsWorker, .{ self, obj.asFile() });
@@ -1270,10 +1282,10 @@ fn scanRelocs(self: *MachO) !void {
     try self.reportUndefs();
 
     for (self.objects.items) |index| {
-        try self.getFile(index).?.createSymbolIndirection(self);
+        try self.getFile(index).createSymbolIndirection(self);
     }
     for (self.dylibs.items) |index| {
-        try self.getFile(index).?.createSymbolIndirection(self);
+        try self.getFile(index).createSymbolIndirection(self);
     }
     if (self.getInternalObject()) |obj| {
         try obj.asFile().createSymbolIndirection(self);
@@ -1372,7 +1384,7 @@ fn reportUndefs(self: *MachO) !void {
                 var inote: usize = 0;
                 while (inote < @min(refs.items.len, max_notes)) : (inote += 1) {
                     const ref = refs.items[inote].unwrap().?;
-                    const file = self.getFile(ref.file).?;
+                    const file = self.getFile(ref.file);
                     const atom = file.getAtom(ref.atom);
                     try err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
                 }
@@ -1430,14 +1442,14 @@ fn initSyntheticSections(self: *MachO) !void {
     }
 
     const needs_unwind_info = for (self.objects.items) |index| {
-        if (self.getFile(index).?.object.hasUnwindRecords()) break true;
+        if (self.getFile(index).object.hasUnwindRecords()) break true;
     } else false;
     if (needs_unwind_info) {
         self.unwind_info_sect_index = try self.addSection("__TEXT", "__unwind_info", .{});
     }
 
     const needs_eh_frame = for (self.objects.items) |index| {
-        if (self.getFile(index).?.object.hasEhFrameRecords()) break true;
+        if (self.getFile(index).object.hasEhFrameRecords()) break true;
     } else false;
     if (needs_eh_frame) {
         assert(needs_unwind_info);
@@ -1593,7 +1605,7 @@ pub fn sortSections(self: *MachO) !void {
     }
 
     for (self.objects.items) |index| {
-        const file = self.getFile(index).?;
+        const file = self.getFile(index);
         for (file.getAtoms()) |atom_index| {
             const atom = file.getAtom(atom_index);
             if (!atom.alive.load(.seq_cst)) continue;
@@ -1630,7 +1642,7 @@ pub fn addAtomsToSections(self: *MachO) !void {
     defer tracy.end();
 
     for (self.objects.items) |index| {
-        const file = self.getFile(index).?;
+        const file = self.getFile(index);
         for (file.getAtoms()) |atom_index| {
             const atom = file.getAtom(atom_index);
             if (!atom.alive.load(.seq_cst)) continue;
@@ -1698,10 +1710,10 @@ fn calcSectionSizes(self: *MachO) !void {
 
         // At this point, we can also calculate symtab and data-in-code linkedit section sizes
         for (self.objects.items) |index| {
-            self.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index).?, self });
+            self.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index), self });
         }
         for (self.dylibs.items) |index| {
-            self.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index).?, self });
+            self.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ self.getFile(index), self });
         }
         if (self.getInternalObject()) |obj| {
             self.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ obj.asFile(), self });
@@ -2198,10 +2210,10 @@ fn writeSectionsAndUpdateLinkeditSizes(self: *MachO) !void {
         self.thread_pool.spawnWg(&wg, updateLinkeditSizeWorker, .{ self, .data_in_code });
 
         for (self.objects.items) |index| {
-            self.thread_pool.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index).?, self });
+            self.thread_pool.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index), self });
         }
         for (self.dylibs.items) |index| {
-            self.thread_pool.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index).?, self });
+            self.thread_pool.spawnWg(&wg, File.writeSymtab, .{ self.getFile(index), self });
         }
         if (self.getInternalObject()) |obj| {
             self.thread_pool.spawnWg(&wg, File.writeSymtab, .{ obj.asFile(), self });
@@ -2224,9 +2236,9 @@ fn writeSectionsToFile(self: *MachO) !void {
 fn writeAtomsWorker(self: *MachO, index: File.Index) void {
     const tracy = trace(@src());
     defer tracy.end();
-    self.getFile(index).?.writeAtoms(self) catch |err| {
+    self.getFile(index).writeAtoms(self) catch |err| {
         self.fatal("{}: failed to write atoms: {s}", .{
-            self.getFile(index).?.fmtPath(),
+            self.getFile(index).fmtPath(),
             @errorName(err),
         });
         _ = self.has_errors.swap(true, .seq_cst);
@@ -2378,7 +2390,7 @@ fn calcSymtabSize(self: *MachO) !void {
     var strsize: u32 = 1;
 
     for (files.items) |index| {
-        const file = self.getFile(index).?;
+        const file = self.getFile(index);
         const ctx = switch (file) {
             inline else => |x| &x.output_symtab_ctx,
         };
@@ -2395,7 +2407,7 @@ fn calcSymtabSize(self: *MachO) !void {
     }
 
     for (files.items) |index| {
-        const file = self.getFile(index).?;
+        const file = self.getFile(index);
         const ctx = switch (file) {
             inline else => |x| &x.output_symtab_ctx,
         };
@@ -2527,7 +2539,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, usize } {
     ncmds += 1;
 
     for (self.dylibs.items) |index| {
-        const dylib = self.getFile(index).?.dylib;
+        const dylib = self.getFile(index).dylib;
         assert(dylib.isAlive(self));
         const dylib_id = dylib.id.?;
         try load_commands.writeDylibLC(.{
@@ -2585,7 +2597,7 @@ fn writeHeader(self: *MachO, ncmds: usize, sizeofcmds: usize) !void {
     }
 
     const has_reexports = for (self.dylibs.items) |index| {
-        if (self.getFile(index).?.dylib.reexport) break true;
+        if (self.getFile(index).dylib.reexport) break true;
     } else false;
     if (!has_reexports) {
         header.flags |= macho.MH_NO_REEXPORTED_DYLIBS;
@@ -2803,19 +2815,19 @@ pub inline fn getLinkeditSegment(self: *MachO) *macho.segment_command_64 {
     return &self.segments.items[self.linkedit_seg_index.?];
 }
 
-pub fn getFile(self: *MachO, index: File.Index) ?File {
-    const tag = self.files.items(.tags)[index];
+pub fn getFile(self: *MachO, index: File.Index) File {
+    const raw_index: usize = @intFromEnum(index);
+    const tag = self.files.items(.tags)[raw_index];
     return switch (tag) {
-        .null => null,
-        .internal => .{ .internal = &self.files.items(.data)[index].internal },
-        .object => .{ .object = &self.files.items(.data)[index].object },
-        .dylib => .{ .dylib = &self.files.items(.data)[index].dylib },
+        .internal => .{ .internal = &self.files.items(.data)[raw_index].internal },
+        .object => .{ .object = &self.files.items(.data)[raw_index].object },
+        .dylib => .{ .dylib = &self.files.items(.data)[raw_index].dylib },
     };
 }
 
 pub fn getInternalObject(self: *MachO) ?*InternalObject {
     const index = self.internal_object_index orelse return null;
-    return self.getFile(index).?.internal;
+    return self.getFile(index).internal;
 }
 
 pub fn addFileHandle(self: *MachO, file: std.fs.File) !File.HandleIndex {
@@ -2949,7 +2961,7 @@ fn fmtDumpState(
     _ = options;
     _ = unused_fmt_string;
     for (self.objects.items) |index| {
-        const object = self.getFile(index).?.object;
+        const object = self.getFile(index).object;
         try writer.print("object({d}) : {} : has_debug({})", .{
             index,
             object.fmtPath(),
@@ -2966,7 +2978,7 @@ fn fmtDumpState(
         });
     }
     for (self.dylibs.items) |index| {
-        const dylib = self.getFile(index).?.dylib;
+        const dylib = self.getFile(index).dylib;
         try writer.print("dylib({d}) : {s} : needed({}) : weak({})", .{
             index,
             dylib.path,
@@ -3304,7 +3316,7 @@ pub const SymbolResolver = struct {
         }
 
         fn getFile(key: Key, macho_file: *MachO) File {
-            return macho_file.getFile(key.file).?;
+            return macho_file.getFile(key.file);
         }
 
         fn eql(key: Key, other: Key, macho_file: *MachO) bool {

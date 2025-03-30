@@ -16,7 +16,7 @@ pub fn gcAtoms(macho_file: *MachO) !void {
 
 fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho_file: *MachO) !void {
     for (objects) |index| {
-        const object = macho_file.getFile(index).?;
+        const object = macho_file.getFile(index);
         for (object.getSymbols(), 0..) |*sym, i| {
             const ref = object.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
             const file = ref.getFile(macho_file);
@@ -41,7 +41,7 @@ fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho
     }
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         for (object.unwind_records_indexes.items) |cu_index| {
             const cu = object.getUnwindRecord(cu_index);
             if (!cu.alive) continue;
@@ -92,7 +92,7 @@ fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
         loop = false;
 
         for (objects) |index| {
-            const file = macho_file.getFile(index).?;
+            const file = macho_file.getFile(index);
             for (file.getAtoms()) |atom_index| {
                 const atom = file.getAtom(atom_index);
                 const isec = atom.getInputSection(macho_file);
@@ -173,7 +173,7 @@ fn refersLive(atom: *Atom, macho_file: *MachO) bool {
 
 fn prune(objects: []const File.Index, macho_file: *MachO) void {
     for (objects) |index| {
-        const file = macho_file.getFile(index).?;
+        const file = macho_file.getFile(index);
         for (file.getAtoms()) |atom_index| {
             const atom = file.getAtom(atom_index);
             if (!atom.visited.load(.seq_cst)) {

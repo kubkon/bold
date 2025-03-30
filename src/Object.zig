@@ -2430,7 +2430,7 @@ fn addSymbol(self: *Object, allocator: Allocator) !Symbol.Index {
 fn addSymbolAssumeCapacity(self: *Object) Symbol.Index {
     const index: Symbol.Index = @enumFromInt(self.symbols.items.len);
     const symbol = self.symbols.addOneAssumeCapacity();
-    symbol.* = .{ .file = self.index };
+    symbol.* = .{ .file = self.index.toOptional() };
     return index;
 }
 

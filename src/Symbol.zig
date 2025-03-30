@@ -7,7 +7,7 @@ value: u64 = 0,
 name: MachO.String = .{},
 
 /// File where this symbol is defined.
-file: File.Index = 0,
+file: File.OptionalIndex = .none,
 
 /// Reference to Atom containing this symbol if any.
 /// Use `getAtom` to get the pointer to the atom.
@@ -72,7 +72,8 @@ pub fn getOutputSectionIndex(symbol: Symbol, macho_file: *MachO) u8 {
 }
 
 pub fn getFile(symbol: Symbol, macho_file: *MachO) ?File {
-    return macho_file.getFile(symbol.file);
+    const index = symbol.file.unwrap() orelse return null;
+    return macho_file.getFile(index);
 }
 
 /// Asserts file is an object.
@@ -418,7 +419,7 @@ pub const Index = enum(u32) {
     }
 
     pub fn toRef(index: Index, file: File.Index) Ref {
-        const result: Ref = @enumFromInt(@intFromEnum(index) | @as(u64, @intCast(file)) << 32);
+        const result: Ref = @enumFromInt(@intFromEnum(index) | @as(u64, @intFromEnum(file)) << 32);
         assert(result != .none);
         return result;
     }
@@ -446,7 +447,7 @@ pub const Ref = enum(u64) {
         if (ref == .none) return null;
         const raw = @intFromEnum(ref);
         const sym_index: Index = @enumFromInt(@as(u32, @truncate(raw)));
-        const file_index: File.Index = @truncate(raw >> 32);
+        const file_index: File.Index = @enumFromInt(@as(u32, @truncate(raw >> 32)));
         return .{ .symbol = sym_index, .file = file_index };
     }
 
@@ -464,14 +465,14 @@ pub const UnwrappedRef = struct {
     file: File.Index,
 
     pub fn getSymbol(ref: UnwrappedRef, macho_file: *MachO) *Symbol {
-        const file = macho_file.getFile(ref.file).?;
+        const file = macho_file.getFile(ref.file);
         return switch (file) {
             inline else => |x| &x.symbols.items[@intFromEnum(ref.symbol)],
         };
     }
 
     pub fn getFile(ref: UnwrappedRef, macho_file: *MachO) File {
-        return macho_file.getFile(ref.file).?;
+        return macho_file.getFile(ref.file);
     }
 
     pub fn eql(ref: UnwrappedRef, other: UnwrappedRef) bool {
@@ -482,7 +483,7 @@ pub const UnwrappedRef = struct {
         if (ref.file == other.file) {
             return @intFromEnum(ref.symbol) < @intFromEnum(other.symbol);
         }
-        return ref.file < other.file;
+        return @intFromEnum(ref.file) < @intFromEnum(other.file);
     }
 };
 

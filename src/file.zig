@@ -80,18 +80,19 @@ pub const File = union(enum) {
         weak: bool = false,
         tentative: bool = false,
     }) u32 {
+        const index: u32 = @intFromEnum(file.getIndex());
         if (file != .dylib and !args.archive) {
             const base: u32 = blk: {
                 if (args.tentative) break :blk 3;
                 break :blk if (args.weak) 2 else 1;
             };
-            return (base << 16) + file.getIndex();
+            return (base << 16) + index;
         }
         const base: u32 = blk: {
             if (args.tentative) break :blk 3;
             break :blk if (args.weak) 2 else 1;
         };
-        return base + (file.getIndex() << 24);
+        return base + (index << 24);
     }
 
     pub fn getAtom(file: File, atom_index: Atom.Index) *Atom {
@@ -237,17 +238,46 @@ pub const File = union(enum) {
         };
     }
 
-    pub const Index = u32;
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn toOptional(index: Index) OptionalIndex {
+            const res: OptionalIndex = @enumFromInt(@intFromEnum(index));
+            assert(res != .none);
+            return res;
+        }
+
+        pub fn eql(index: Index, other: Index) bool {
+            return @intFromEnum(index) == @intFromEnum(other);
+        }
+
+        pub fn lessThan(index: Index, other: Index) bool {
+            return @intFromEnum(index) < @intFromEnum(other);
+        }
+    };
+
+    pub const OptionalIndex = enum(u32) {
+        none = std.math.maxInt(u32),
+        _,
+
+        pub fn unwrap(opt: OptionalIndex) ?Index {
+            if (opt == .none) return null;
+            return @enumFromInt(@intFromEnum(opt));
+        }
+
+        pub fn eql(index: OptionalIndex, other: OptionalIndex) bool {
+            return @intFromEnum(index) == @intFromEnum(other);
+        }
+    };
 
     pub const Entry = union(enum) {
-        null: void,
         internal: InternalObject,
         object: Object,
         dylib: Dylib,
     };
 
     pub const Handle = std.fs.File;
-    pub const HandleIndex = Index;
+    pub const HandleIndex = u32;
 };
 
 const assert = std.debug.assert;

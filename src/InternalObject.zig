@@ -166,7 +166,7 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
     defer boundary_symbols.deinit();
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         for (object.symbols.items, 0..) |sym, i| {
             const sym_index: Symbol.Index = @enumFromInt(i);
             const nlist = object.symtab.items(.nlist)[i];
@@ -344,7 +344,7 @@ pub fn resolveObjcMsgSendSymbols(self: *InternalObject, macho_file: *MachO) !voi
     defer objc_msgsend_syms.deinit();
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
 
         for (object.symbols.items, 0..) |sym, i| {
             const sym_index: Symbol.Index = @enumFromInt(i);
@@ -768,7 +768,7 @@ pub fn addSymbol(self: *InternalObject, allocator: Allocator) !Symbol.Index {
 pub fn addSymbolAssumeCapacity(self: *InternalObject) Symbol.Index {
     const index: Symbol.Index = @enumFromInt(self.symbols.items.len);
     const symbol = self.symbols.addOneAssumeCapacity();
-    symbol.* = .{ .file = self.index };
+    symbol.* = .{ .file = self.index.toOptional() };
     return index;
 }
 

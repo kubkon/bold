@@ -42,7 +42,7 @@ pub fn getName(self: Atom, macho_file: *MachO) [:0]const u8 {
 }
 
 pub fn getFile(self: Atom, macho_file: *MachO) File {
-    return macho_file.getFile(self.file).?;
+    return macho_file.getFile(self.file);
 }
 
 pub fn toRef(self: Atom) Ref {
@@ -876,7 +876,7 @@ pub const Index = enum(u32) {
     }
 
     pub fn toRef(index: Index, file: File.Index) Ref {
-        const result: Ref = @enumFromInt(@intFromEnum(index) | @as(u64, @intCast(file)) << 32);
+        const result: Ref = @enumFromInt(@intFromEnum(index) | @as(u64, @intFromEnum(file)) << 32);
         assert(result != .none);
         return result;
     }
@@ -900,7 +900,7 @@ pub const Ref = enum(u64) {
         if (ref == .none) return null;
         const raw = @intFromEnum(ref);
         const atom_index: Index = @enumFromInt(@as(u32, @truncate(raw)));
-        const file_index: File.Index = @truncate(raw >> 32);
+        const file_index: File.Index = @enumFromInt(@as(u32, @truncate(raw >> 32)));
         return .{ .atom = atom_index, .file = file_index };
     }
 
@@ -918,7 +918,7 @@ pub const UnwrappedRef = struct {
     file: File.Index,
 
     pub fn getAtom(ref: UnwrappedRef, macho_file: *MachO) *Atom {
-        return macho_file.getFile(ref.file).?.getAtom(ref.atom);
+        return macho_file.getFile(ref.file).getAtom(ref.atom);
     }
 };
 
