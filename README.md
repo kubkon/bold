@@ -10,26 +10,26 @@ when linking stage3-zig compiler which includes linking LLVM statically:
 ```sh
 $ hyperfine ./bold.sh ./ld.sh ./ld_legacy.sh ./lld.sh
 Benchmark 1: ./bold.sh
-  Time (mean ± σ):      1.088 s ±  0.018 s    [User: 3.174 s, System: 1.004 s]
-  Range (min … max):    1.039 s …  1.104 s    10 runs
+  Time (mean ± σ):     978.5 ms ±   9.9 ms    [User: 3083.2 ms, System: 949.2 ms]
+  Range (min … max):   967.6 ms … 998.7 ms    10 runs
 
 Benchmark 2: ./ld.sh
-  Time (mean ± σ):     491.8 ms ±  19.5 ms    [User: 1891.5 ms, System: 304.7 ms]
-  Range (min … max):   458.1 ms … 509.9 ms    10 runs
+  Time (mean ± σ):     439.0 ms ±   5.4 ms    [User: 1769.9 ms, System: 273.1 ms]
+  Range (min … max):   432.2 ms … 447.9 ms    10 runs
 
 Benchmark 3: ./ld_legacy.sh
-  Time (mean ± σ):      2.132 s ±  0.013 s    [User: 3.242 s, System: 0.256 s]
-  Range (min … max):    2.104 s …  2.150 s    10 runs
+  Time (mean ± σ):      1.986 s ±  0.021 s    [User: 3.100 s, System: 0.221 s]
+  Range (min … max):    1.968 s …  2.030 s    10 runs
 
 Benchmark 4: ./lld.sh
-  Time (mean ± σ):      1.160 s ±  0.021 s    [User: 1.329 s, System: 0.247 s]
-  Range (min … max):    1.133 s …  1.208 s    10 runs
+  Time (mean ± σ):      1.043 s ±  0.009 s    [User: 1.206 s, System: 0.210 s]
+  Range (min … max):    1.031 s …  1.060 s    10 runs
 
 Summary
   ./ld.sh ran
-    2.21 ± 0.10 times faster than ./bold.sh
-    2.36 ± 0.10 times faster than ./lld.sh
-    4.33 ± 0.17 times faster than ./ld_legacy.sh
+    2.23 ± 0.04 times faster than ./bold.sh
+    2.38 ± 0.04 times faster than ./lld.sh
+    4.52 ± 0.07 times faster than ./ld_legacy.sh
 ```
 
 In the results
