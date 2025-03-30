@@ -78,6 +78,7 @@
               zlspkgs.default
               tracy
               zachopkgs.default
+              hyperfine
             ]);
 
           TRACY_PATH = "${tracy-src}/public";
