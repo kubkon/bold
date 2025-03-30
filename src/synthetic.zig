@@ -561,7 +561,7 @@ pub const DataInCode = struct {
         const gpa = macho_file.allocator;
 
         for (macho_file.objects.items) |index| {
-            const object = macho_file.getFile(index).?.object;
+            const object = macho_file.getFile(index).object;
             const dices = object.getDataInCode();
 
             try dice.entries.ensureUnusedCapacity(gpa, dices.len);

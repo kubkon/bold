@@ -44,7 +44,7 @@ pub const Bind = struct {
         if (macho_file.getInternalObject()) |obj| objects.appendAssumeCapacity(obj.index);
 
         for (objects.items) |index| {
-            const file = macho_file.getFile(index).?;
+            const file = macho_file.getFile(index);
             for (file.getAtoms()) |atom_index| {
                 const atom = file.getAtom(atom_index);
                 if (!atom.alive.load(.seq_cst)) continue;
@@ -298,7 +298,7 @@ pub const WeakBind = struct {
         if (macho_file.getInternalObject()) |obj| objects.appendAssumeCapacity(obj.index);
 
         for (objects.items) |index| {
-            const file = macho_file.getFile(index).?;
+            const file = macho_file.getFile(index);
             for (file.getAtoms()) |atom_index| {
                 const atom = file.getAtom(atom_index);
                 if (!atom.alive.load(.seq_cst)) continue;

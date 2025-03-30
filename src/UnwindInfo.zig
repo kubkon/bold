@@ -470,7 +470,7 @@ pub const Record = struct {
     alive: bool = true,
 
     pub fn getObject(rec: Record, macho_file: *MachO) *Object {
-        return macho_file.getFile(rec.file).?.object;
+        return macho_file.getFile(rec.file).object;
     }
 
     pub fn getAtom(rec: Record, macho_file: *MachO) *Atom {
@@ -557,7 +557,7 @@ pub const Record = struct {
         _,
 
         pub fn toRef(index: Index, file: File.Index) Ref {
-            return @enumFromInt(@intFromEnum(index) | @as(u64, @intCast(file)) << 32);
+            return @enumFromInt(@intFromEnum(index) | @as(u64, @intFromEnum(file)) << 32);
         }
     };
 
@@ -567,8 +567,8 @@ pub const Record = struct {
         pub fn getUnwindRecord(ref: Ref, macho_file: *MachO) *Record {
             const raw = @intFromEnum(ref);
             const rec_index: Index = @enumFromInt(@as(u32, @truncate(raw)));
-            const file_index: File.Index = @truncate(raw >> 32);
-            return macho_file.getFile(file_index).?.object.getUnwindRecord(rec_index);
+            const file_index: File.Index = @enumFromInt(@as(u32, @truncate(raw >> 32)));
+            return macho_file.getFile(file_index).object.getUnwindRecord(rec_index);
         }
     };
 };
