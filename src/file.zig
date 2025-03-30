@@ -271,6 +271,7 @@ pub const File = union(enum) {
     };
 
     pub const Entry = union(enum) {
+        none: void,
         internal: InternalObject,
         object: Object,
         dylib: Dylib,

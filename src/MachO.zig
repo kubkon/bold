@@ -122,6 +122,7 @@ pub fn deinit(self: *MachO) void {
     self.dylibs.deinit(gpa);
 
     for (self.files.items(.tags), self.files.items(.data)) |tag, *data| switch (tag) {
+        .none => {},
         .internal => data.internal.deinit(gpa),
         .object => data.object.deinit(gpa),
         .dylib => data.dylib.deinit(gpa),
@@ -1002,9 +1003,8 @@ pub fn resolveSymbols(self: *MachO) !void {
         const index = self.objects.items[i];
         if (!self.getFile(index).object.alive) {
             _ = self.objects.orderedRemove(i);
-            const object = &self.files.items(.data)[@intFromEnum(index)].object;
-            object.deinit(self.allocator);
-            object.* = undefined;
+            self.files.items(.data)[@intFromEnum(index)].object.deinit(self.allocator);
+            self.files.set(@intFromEnum(index), .none);
         } else i += 1;
     }
 
@@ -1046,9 +1046,8 @@ fn deadStripDylibs(self: *MachO) !void {
         if (!self.getFile(index).dylib.isAlive(self)) {
             stripped.putAssumeCapacity(index, {});
             _ = self.dylibs.orderedRemove(i);
-            const dylib = &self.files.items(.data)[@intFromEnum(index)].dylib;
-            dylib.deinit(self.allocator);
-            dylib.* = undefined;
+            self.files.items(.data)[@intFromEnum(index)].dylib.deinit(self.allocator);
+            self.files.set(@intFromEnum(index), .none);
         } else i += 1;
     }
 
@@ -2819,6 +2818,7 @@ pub fn getFile(self: *MachO, index: File.Index) File {
     const raw_index: usize = @intFromEnum(index);
     const tag = self.files.items(.tags)[raw_index];
     return switch (tag) {
+        .none => unreachable,
         .internal => .{ .internal = &self.files.items(.data)[raw_index].internal },
         .object => .{ .object = &self.files.items(.data)[raw_index].object },
         .dylib => .{ .dylib = &self.files.items(.data)[raw_index].dylib },
