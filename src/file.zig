@@ -80,7 +80,8 @@ pub const File = union(enum) {
         weak: bool = false,
         tentative: bool = false,
     }) u32 {
-        const index: u32 = @intFromEnum(file.getIndex());
+        // Offset by 1 since we start indexing at 0, and any operation on 0 will not get us far.
+        const index: u32 = @intFromEnum(file.getIndex()) + 1;
         if (file != .dylib and !args.archive) {
             const base: u32 = blk: {
                 if (args.tentative) break :blk 3;
