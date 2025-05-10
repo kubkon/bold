@@ -44,7 +44,7 @@ tl;dr `bold` is currently directly competing with LLVM lld but behind the Apple 
 
 ### Building
 
-You will need Zig 0.13.0 in your path. You can download it from [here](https://ziglang.org/download/).
+You will need Zig 0.14.0 in your path. You can download it from [here](https://ziglang.org/download/).
 
 ```
 $ zig build -Doptimize=ReleaseFast
