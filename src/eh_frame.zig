@@ -1,11 +1,11 @@
 pub const Cie = struct {
+    file: File.Index,
     /// Includes 4byte size cell.
     offset: u32,
     out_offset: u32 = 0,
     size: u32,
     lsda_size: ?enum { p32, p64 } = null,
     personality: ?Personality = null,
-    file: File.Index = 0,
     alive: bool = false,
 
     pub fn parse(cie: *Cie, macho_file: *MachO) !void {
@@ -57,8 +57,7 @@ pub const Cie = struct {
     }
 
     pub fn getObject(cie: Cie, macho_file: *MachO) *Object {
-        const file = macho_file.getFile(cie.file).?;
-        return file.object;
+        return macho_file.getFile(cie.file).object;
     }
 
     pub fn getData(cie: Cie, macho_file: *MachO) []const u8 {
@@ -124,6 +123,17 @@ pub const Cie = struct {
 
     pub const Index = enum(u32) {
         _,
+
+        pub fn format(
+            index: Index,
+            comptime unused_fmt_string: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = unused_fmt_string;
+            _ = options;
+            try writer.print("{d}", .{@intFromEnum(index)});
+        }
     };
 
     pub const Personality = struct {
@@ -213,8 +223,7 @@ pub const Fde = struct {
     }
 
     pub fn getObject(fde: Fde, macho_file: *MachO) *Object {
-        const file = macho_file.getFile(fde.file).?;
-        return file.object;
+        return macho_file.getFile(fde.file).object;
     }
 
     pub fn getData(fde: Fde, macho_file: *MachO) []const u8 {
@@ -342,7 +351,7 @@ pub fn calcSize(macho_file: *MachO) !u32 {
     defer cies.deinit();
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
 
         outer: for (object.cies.items) |*cie| {
             for (cies.items) |other| {
@@ -363,7 +372,7 @@ pub fn calcSize(macho_file: *MachO) !u32 {
     }
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         for (object.fdes.items) |*fde| {
             if (!fde.alive) continue;
             fde.out_offset = offset;
@@ -381,7 +390,7 @@ pub fn calcNumRelocs(macho_file: *MachO) u32 {
     var nreloc: u32 = 0;
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         for (object.cies.items) |cie| {
             if (!cie.alive) continue;
             if (cie.getPersonality(macho_file)) |_| {
@@ -404,7 +413,7 @@ pub fn write(macho_file: *MachO, buffer: []u8) void {
     };
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         for (object.cies.items) |cie| {
             if (!cie.alive) continue;
 
@@ -425,7 +434,7 @@ pub fn write(macho_file: *MachO, buffer: []u8) void {
     }
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         for (object.fdes.items) |fde| {
             if (!fde.alive) continue;
 
@@ -485,7 +494,7 @@ pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: []macho.relocation_in
 
     var i: usize = 0;
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         for (object.cies.items) |cie| {
             if (!cie.alive) continue;
 
@@ -512,7 +521,7 @@ pub fn writeRelocs(macho_file: *MachO, code: []u8, relocs: []macho.relocation_in
     }
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         for (object.fdes.items) |fde| {
             if (!fde.alive) continue;
 

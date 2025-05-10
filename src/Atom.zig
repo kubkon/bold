@@ -42,7 +42,7 @@ pub fn getName(self: Atom, macho_file: *MachO) [:0]const u8 {
 }
 
 pub fn getFile(self: Atom, macho_file: *MachO) File {
-    return macho_file.getFile(self.file).?;
+    return macho_file.getFile(self.file);
 }
 
 pub fn toRef(self: Atom) Ref {
@@ -847,7 +847,7 @@ fn format2(
     const atom = ctx.atom;
     const macho_file = ctx.macho_file;
     const file = atom.getFile(macho_file);
-    try writer.print("atom({d}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : thunk({d})", .{
+    try writer.print("atom({}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : thunk({d})", .{
         atom.atom_index,                 atom.getName(macho_file), atom.getAddress(macho_file),
         atom.out_n_sect,                 atom.alignment,           atom.size,
         atom.getExtra(macho_file).thunk,
@@ -876,9 +876,20 @@ pub const Index = enum(u32) {
     }
 
     pub fn toRef(index: Index, file: File.Index) Ref {
-        const result: Ref = @enumFromInt(@intFromEnum(index) | @as(u64, @intCast(file)) << 32);
+        const result: Ref = @enumFromInt(@intFromEnum(index) | @as(u64, @intFromEnum(file)) << 32);
         assert(result != .none);
         return result;
+    }
+
+    pub fn format(
+        index: Index,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        try writer.print("{d}", .{@intFromEnum(index)});
     }
 };
 
@@ -890,6 +901,21 @@ pub const OptionalIndex = enum(u32) {
         if (opt == .none) return null;
         return @enumFromInt(@intFromEnum(opt));
     }
+
+    pub fn format(
+        opt: OptionalIndex,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        if (opt == .none) {
+            try writer.writeAll(".none");
+        } else {
+            try writer.print("{d}", .{@intFromEnum(opt)});
+        }
+    }
 };
 
 pub const Ref = enum(u64) {
@@ -900,7 +926,7 @@ pub const Ref = enum(u64) {
         if (ref == .none) return null;
         const raw = @intFromEnum(ref);
         const atom_index: Index = @enumFromInt(@as(u32, @truncate(raw)));
-        const file_index: File.Index = @truncate(raw >> 32);
+        const file_index: File.Index = @enumFromInt(@as(u32, @truncate(raw >> 32)));
         return .{ .atom = atom_index, .file = file_index };
     }
 
@@ -918,7 +944,7 @@ pub const UnwrappedRef = struct {
     file: File.Index,
 
     pub fn getAtom(ref: UnwrappedRef, macho_file: *MachO) *Atom {
-        return macho_file.getFile(ref.file).?.getAtom(ref.atom);
+        return macho_file.getFile(ref.file).getAtom(ref.atom);
     }
 };
 

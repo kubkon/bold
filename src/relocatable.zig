@@ -55,7 +55,7 @@ pub fn flush(macho_file: *MachO) !void {
 
 fn markExports(macho_file: *MachO) void {
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         for (object.symbols.items, 0..) |*sym, i| {
             const ref = object.getSymbolRef(@enumFromInt(i), macho_file).unwrap() orelse continue;
             const file = ref.getFile(macho_file);
@@ -68,14 +68,14 @@ fn markExports(macho_file: *MachO) void {
 
 fn claimUnresolved(macho_file: *MachO) void {
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         object.claimUnresolvedRelocatable(macho_file);
     }
 }
 
 fn initOutputSections(macho_file: *MachO) !void {
     for (macho_file.objects.items) |index| {
-        const file = macho_file.getFile(index).?;
+        const file = macho_file.getFile(index);
         for (file.getAtoms()) |atom_index| {
             const atom = file.getAtom(atom_index);
             if (!atom.alive.load(.seq_cst)) continue;
@@ -84,7 +84,7 @@ fn initOutputSections(macho_file: *MachO) !void {
     }
 
     const needs_unwind_info = for (macho_file.objects.items) |index| {
-        if (macho_file.getFile(index).?.object.hasUnwindRecords()) break true;
+        if (macho_file.getFile(index).object.hasUnwindRecords()) break true;
     } else false;
     if (needs_unwind_info) {
         macho_file.unwind_info_sect_index = try macho_file.addSection("__LD", "__compact_unwind", .{
@@ -93,7 +93,7 @@ fn initOutputSections(macho_file: *MachO) !void {
     }
 
     const needs_eh_frame = for (macho_file.objects.items) |index| {
-        if (macho_file.getFile(index).?.object.hasEhFrameRecords()) break true;
+        if (macho_file.getFile(index).object.hasEhFrameRecords()) break true;
     } else false;
     if (needs_eh_frame) {
         assert(needs_unwind_info);
@@ -124,7 +124,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
         if (macho_file.unwind_info_sect_index) |_| {
             for (macho_file.objects.items) |index| {
                 macho_file.thread_pool.spawnWg(&wg, Object.calcCompactUnwindSizeRelocatable, .{
-                    macho_file.getFile(index).?.object,
+                    macho_file.getFile(index).object,
                     macho_file,
                 });
             }
@@ -132,7 +132,7 @@ fn calcSectionSizes(macho_file: *MachO) !void {
 
         if (macho_file.options.strip_locals) for (macho_file.objects.items) |index| {
             macho_file.thread_pool.spawnWg(&wg, stripLocalsWorker, .{
-                macho_file.getFile(index).?.object,
+                macho_file.getFile(index).object,
                 macho_file,
             });
         };
@@ -191,7 +191,7 @@ fn calcCompactUnwindSize(macho_file: *MachO) void {
     var nreloc: u32 = 0;
 
     for (macho_file.objects.items) |index| {
-        const ctx = &macho_file.getFile(index).?.object.compact_unwind_ctx;
+        const ctx = &macho_file.getFile(index).object.compact_unwind_ctx;
         ctx.rec_index = nrec;
         ctx.reloc_index = nreloc;
         nrec += ctx.rec_count;
@@ -248,7 +248,7 @@ fn calcSymtabSize(macho_file: *MachO) void {
         defer wg.wait();
 
         for (macho_file.objects.items) |index| {
-            macho_file.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ macho_file.getFile(index).?, macho_file });
+            macho_file.thread_pool.spawnWg(&wg, File.calcSymtabSize, .{ macho_file.getFile(index), macho_file });
         }
     }
 
@@ -259,7 +259,7 @@ fn calcSymtabSize(macho_file: *MachO) void {
     var strsize: u32 = 1;
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         const ctx = &object.output_symtab_ctx;
         ctx.ilocal = nlocals;
         ctx.istab = nstabs;
@@ -274,7 +274,7 @@ fn calcSymtabSize(macho_file: *MachO) void {
     }
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         const ctx = &object.output_symtab_ctx;
         ctx.istab += nlocals;
         ctx.iexport += nlocals + nstabs;
@@ -375,8 +375,8 @@ fn writeSections(macho_file: *MachO) !void {
         defer wg.wait();
 
         for (macho_file.objects.items) |index| {
-            macho_file.thread_pool.spawnWg(&wg, writeAtomsWorker, .{ macho_file, macho_file.getFile(index).?.object });
-            macho_file.thread_pool.spawnWg(&wg, Object.writeSymtab, .{ macho_file.getFile(index).?.object.*, macho_file });
+            macho_file.thread_pool.spawnWg(&wg, writeAtomsWorker, .{ macho_file, macho_file.getFile(index).object });
+            macho_file.thread_pool.spawnWg(&wg, Object.writeSymtab, .{ macho_file.getFile(index).object.*, macho_file });
         }
 
         if (macho_file.eh_frame_sect_index) |_| {
@@ -387,7 +387,7 @@ fn writeSections(macho_file: *MachO) !void {
             for (macho_file.objects.items) |index| {
                 macho_file.thread_pool.spawnWg(&wg, writeCompactUnwindWorker, .{
                     macho_file,
-                    macho_file.getFile(index).?.object,
+                    macho_file.getFile(index).object,
                 });
             }
         }
@@ -514,7 +514,7 @@ fn writeHeader(macho_file: *MachO, ncmds: usize, sizeofcmds: usize) !void {
     header.filetype = macho.MH_OBJECT;
 
     const subsections_via_symbols = for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
+        const object = macho_file.getFile(index).object;
         if (object.hasSubsections()) break true;
     } else false;
     if (subsections_via_symbols) {
