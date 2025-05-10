@@ -123,6 +123,17 @@ pub const Cie = struct {
 
     pub const Index = enum(u32) {
         _,
+
+        pub fn format(
+            index: Index,
+            comptime unused_fmt_string: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = unused_fmt_string;
+            _ = options;
+            try writer.print("{d}", .{@intFromEnum(index)});
+        }
     };
 
     pub const Personality = struct {

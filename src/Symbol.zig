@@ -423,6 +423,17 @@ pub const Index = enum(u32) {
         assert(result != .none);
         return result;
     }
+
+    pub fn format(
+        index: Index,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        try writer.print("{d}", .{@intFromEnum(index)});
+    }
 };
 
 pub const OptionalIndex = enum(u32) {
@@ -436,6 +447,21 @@ pub const OptionalIndex = enum(u32) {
 
     pub fn eql(opt: OptionalIndex, other: OptionalIndex) bool {
         return @intFromEnum(opt) == @intFromEnum(other);
+    }
+
+    pub fn format(
+        opt: OptionalIndex,
+        comptime unused_fmt_string: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = unused_fmt_string;
+        _ = options;
+        if (opt == .none) {
+            try writer.writeAll(".none");
+        } else {
+            try writer.print("{d}", .{@intFromEnum(opt)});
+        }
     }
 };
 

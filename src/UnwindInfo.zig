@@ -559,6 +559,17 @@ pub const Record = struct {
         pub fn toRef(index: Index, file: File.Index) Ref {
             return @enumFromInt(@intFromEnum(index) | @as(u64, @intFromEnum(file)) << 32);
         }
+
+        pub fn format(
+            index: Index,
+            comptime unused_fmt_string: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = unused_fmt_string;
+            _ = options;
+            try writer.print("{d}", .{@intFromEnum(index)});
+        }
     };
 
     pub const Ref = enum(u64) {

@@ -254,6 +254,17 @@ pub const File = union(enum) {
         pub fn lessThan(index: Index, other: Index) bool {
             return @intFromEnum(index) < @intFromEnum(other);
         }
+
+        pub fn format(
+            index: Index,
+            comptime unused_fmt_string: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = unused_fmt_string;
+            _ = options;
+            try writer.print("{d}", .{@intFromEnum(index)});
+        }
     };
 
     pub const OptionalIndex = enum(u32) {
@@ -267,6 +278,21 @@ pub const File = union(enum) {
 
         pub fn eql(index: OptionalIndex, other: OptionalIndex) bool {
             return @intFromEnum(index) == @intFromEnum(other);
+        }
+
+        pub fn format(
+            opt: OptionalIndex,
+            comptime unused_fmt_string: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = unused_fmt_string;
+            _ = options;
+            if (opt == .none) {
+                try writer.writeAll(".none");
+            } else {
+                try writer.print("{d}", .{@intFromEnum(opt)});
+            }
         }
     };
 
