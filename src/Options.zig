@@ -93,7 +93,7 @@ const usage =
 ;
 
 const version =
-    \\bold 0.1.0 (compatible with Apple ld64)
+    \\bold 0.2.0 (compatible with Apple ld64)
 ;
 
 emit: MachO.Emit,
