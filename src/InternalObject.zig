@@ -1,19 +1,19 @@
 index: File.Index,
 
-sections: std.MultiArrayList(Section) = .{},
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
-symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
+sections: std.MultiArrayList(Section) = .empty,
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
+atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
+symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
 
-objc_methnames: std.ArrayListUnmanaged(u8) = .{},
+objc_methnames: std.ArrayListUnmanaged(u8) = .empty,
 objc_selrefs: [@sizeOf(u64)]u8 = [_]u8{0} ** @sizeOf(u64),
 
-force_undefined: std.ArrayListUnmanaged(Symbol.Index) = .{},
+force_undefined: std.ArrayListUnmanaged(Symbol.Index) = .empty,
 entry_index: ?Symbol.Index = null,
 dyld_stub_binder_index: ?Symbol.Index = null,
 dyld_private_index: ?Symbol.Index = null,
@@ -21,9 +21,9 @@ objc_msg_send_index: ?Symbol.Index = null,
 mh_execute_header_index: ?Symbol.Index = null,
 mh_dylib_header_index: ?Symbol.Index = null,
 dso_handle_index: ?Symbol.Index = null,
-boundary_symbols: std.ArrayListUnmanaged(Symbol.Index) = .{},
+boundary_symbols: std.ArrayListUnmanaged(Symbol.Index) = .empty,
 
-output_symtab_ctx: MachO.SymtabCtx = .{},
+output_symtab_ctx: MachO.SymtabCtx = .init,
 
 pub fn deinit(self: *InternalObject, allocator: Allocator) void {
     for (self.sections.items(.relocs)) |*relocs| {
@@ -57,7 +57,7 @@ pub fn initSymbols(self: *InternalObject, macho_file: *MachO) !void {
             const index = obj.addSymbolAssumeCapacity();
             const symbol = &obj.symbols.items[@intFromEnum(index)];
             symbol.name = name;
-            symbol.extra = obj.addSymbolExtraAssumeCapacity(.{});
+            symbol.extra = obj.addSymbolExtraAssumeCapacity(.init);
             symbol.flags.dyn_ref = args.desc & macho.REFERENCED_DYNAMICALLY != 0;
             symbol.visibility = if (args.type & macho.N_EXT != 0) blk: {
                 break :blk if (args.type & macho.N_PEXT != 0) .hidden else .global;
@@ -211,7 +211,7 @@ pub fn resolveBoundarySymbols(self: *InternalObject, macho_file: *MachO) !void {
             .n_value = 0,
         };
         sym.nlist_idx = nlist_idx;
-        sym.extra = self.addSymbolExtraAssumeCapacity(.{});
+        sym.extra = self.addSymbolExtraAssumeCapacity(.init);
 
         const idx = ref.getFile(macho_file).object.globals.items[@intFromEnum(ref.symbol)];
         self.globals.addOneAssumeCapacity().* = idx;
@@ -266,7 +266,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
     const sym = &self.symbols.items[@intFromEnum(sym_index)];
     sym.name = name_str;
     sym.atom_ref = atom_index.toRef(self.index);
-    sym.extra = try self.addSymbolExtra(gpa, .{});
+    sym.extra = try self.addSymbolExtra(gpa, .init);
     const nlist_idx: u32 = @intCast(self.symtab.items.len);
     const nlist = try self.symtab.addOne(gpa);
     nlist.* = .{
@@ -317,7 +317,7 @@ fn addObjcSelrefsSection(self: *InternalObject, methname_sym_index: Symbol.Index
     const sym_index = try self.addSymbol(gpa);
     const sym = &self.symbols.items[@intFromEnum(sym_index)];
     sym.atom_ref = atom_index.toRef(self.index);
-    sym.extra = try self.addSymbolExtra(gpa, .{});
+    sym.extra = try self.addSymbolExtra(gpa, .init);
     const nlist_idx: u32 = @intCast(self.symtab.items.len);
     const nlist = try self.symtab.addOne(gpa);
     nlist.* = .{
@@ -685,7 +685,7 @@ fn addAtom(self: *InternalObject, allocator: Allocator, size: u64, alignment: u3
         .alignment = alignment,
         .file = self.index,
         .atom_index = atom_index,
-        .extra = try self.addAtomExtra(allocator, .{}),
+        .extra = try self.addAtomExtra(allocator, .init),
     };
     return atom_index;
 }
@@ -884,7 +884,7 @@ fn formatSymtab(
 
 const Section = struct {
     header: macho.section_64,
-    relocs: std.ArrayListUnmanaged(Relocation) = .{},
+    relocs: std.ArrayListUnmanaged(Relocation) = .empty,
     extra: Extra = .{},
 
     const Extra = packed struct {

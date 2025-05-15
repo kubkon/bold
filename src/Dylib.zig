@@ -5,16 +5,16 @@ index: File.Index,
 file_handle: ?File.HandleIndex = null,
 lib_stub: ?LibStub = null,
 
-exports: std.MultiArrayList(Export) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+exports: std.MultiArrayList(Export) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 id: ?Id = null,
 ordinal: u16 = 0,
 
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
-dependents: std.ArrayListUnmanaged(Id) = .{},
-rpaths: std.StringArrayHashMapUnmanaged(void) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
+dependents: std.ArrayListUnmanaged(Id) = .empty,
+rpaths: std.StringArrayHashMapUnmanaged(void) = .empty,
 umbrella: File.Index,
 
 needed: bool,
@@ -24,7 +24,7 @@ explicit: bool,
 hoisted: bool = true,
 referenced: bool = false,
 
-output_symtab_ctx: MachO.SymtabCtx = .{},
+output_symtab_ctx: MachO.SymtabCtx = .init,
 
 pub fn deinit(self: *Dylib, allocator: Allocator) void {
     if (self.lib_stub) |*ls| ls.deinit();
@@ -216,7 +216,7 @@ pub fn addExport(self: *Dylib, allocator: Allocator, name: []const u8, flags: Ex
     const index = try self.addSymbol(allocator);
     const symbol = &self.symbols.items[@intFromEnum(index)];
     symbol.name = str;
-    symbol.extra = try self.addSymbolExtra(allocator, .{});
+    symbol.extra = try self.addSymbolExtra(allocator, .init);
     symbol.flags.weak = flags.weak;
     symbol.flags.tlv = flags.tlv;
     symbol.visibility = .global;
@@ -616,7 +616,7 @@ fn initSymbols(self: *Dylib, macho_file: *MachO) !void {
         const index = self.addSymbolAssumeCapacity();
         const symbol = &self.symbols.items[@intFromEnum(index)];
         symbol.name = noff;
-        symbol.extra = self.addSymbolExtraAssumeCapacity(.{});
+        symbol.extra = self.addSymbolExtraAssumeCapacity(.init);
         symbol.flags.weak = flags.weak;
         symbol.flags.tlv = flags.tlv;
         symbol.visibility = .global;
@@ -842,7 +842,7 @@ pub const TargetMatcher = struct {
     allocator: Allocator,
     cpu_arch: std.Target.Cpu.Arch,
     platform: macho.PLATFORM,
-    target_strings: std.ArrayListUnmanaged([]const u8) = .{},
+    target_strings: std.ArrayListUnmanaged([]const u8) = .empty,
 
     pub fn init(allocator: Allocator, cpu_arch: std.Target.Cpu.Arch, platform: macho.PLATFORM) !TargetMatcher {
         var self = TargetMatcher{

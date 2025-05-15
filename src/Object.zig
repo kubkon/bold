@@ -7,34 +7,34 @@ index: File.Index,
 ar_name: ?[]const u8 = null,
 
 header: ?macho.mach_header_64 = null,
-sections: std.MultiArrayList(Section) = .{},
-symtab: std.MultiArrayList(Nlist) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+sections: std.MultiArrayList(Section) = .empty,
+symtab: std.MultiArrayList(Nlist) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-symbols_extra: std.ArrayListUnmanaged(u32) = .{},
-globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .{},
-atoms: std.ArrayListUnmanaged(Atom) = .{},
-atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .{},
-atoms_extra: std.ArrayListUnmanaged(u32) = .{},
+symbols: std.ArrayListUnmanaged(Symbol) = .empty,
+symbols_extra: std.ArrayListUnmanaged(u32) = .empty,
+globals: std.ArrayListUnmanaged(MachO.SymbolResolver.Index) = .empty,
+atoms: std.ArrayListUnmanaged(Atom) = .empty,
+atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
+atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
 
 compile_unit: ?CompileUnit = null,
-stab_files: std.ArrayListUnmanaged(StabFile) = .{},
+stab_files: std.ArrayListUnmanaged(StabFile) = .empty,
 
 eh_frame_sect_index: ?u8 = null,
 compact_unwind_sect_index: ?u8 = null,
-cies: std.ArrayListUnmanaged(Cie) = .{},
-fdes: std.ArrayListUnmanaged(Fde) = .{},
-eh_frame_data: std.ArrayListUnmanaged(u8) = .{},
-unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record) = .{},
-unwind_records_indexes: std.ArrayListUnmanaged(UnwindInfo.Record.Index) = .{},
-data_in_code: std.ArrayListUnmanaged(macho.data_in_code_entry) = .{},
+cies: std.ArrayListUnmanaged(Cie) = .empty,
+fdes: std.ArrayListUnmanaged(Fde) = .empty,
+eh_frame_data: std.ArrayListUnmanaged(u8) = .empty,
+unwind_records: std.ArrayListUnmanaged(UnwindInfo.Record) = .empty,
+unwind_records_indexes: std.ArrayListUnmanaged(UnwindInfo.Record.Index) = .empty,
+data_in_code: std.ArrayListUnmanaged(macho.data_in_code_entry) = .empty,
 
 alive: bool = true,
 hidden: bool = false,
 
 compact_unwind_ctx: CompactUnwindCtx = .{},
-output_symtab_ctx: MachO.SymtabCtx = .{},
+output_symtab_ctx: MachO.SymtabCtx = .init,
 
 pub fn deinit(self: *Object, allocator: Allocator) void {
     allocator.free(self.path);
@@ -848,7 +848,7 @@ fn initSymbols(self: *Object, allocator: Allocator, macho_file: *MachO) !void {
         symbol.value = nlist.n_value;
         symbol.name = .{ .pos = nlist.n_strx, .len = @intCast(self.getNStrx(nlist.n_strx).len + 1) };
         symbol.nlist_idx = @intCast(i);
-        symbol.extra = self.addSymbolExtraAssumeCapacity(.{});
+        symbol.extra = self.addSymbolExtraAssumeCapacity(.init);
 
         if (atom_index.unwrap()) |ind| {
             const atom = self.getAtom(ind);
@@ -1455,7 +1455,7 @@ fn findCompileUnit(self: *Object, gpa: Allocator, dwarf: Dwarf, macho_file: *Mac
         break :str_offsets_base try info_reader.readOffset(cuh.format);
     } else null;
 
-    var cu: CompileUnit = .{ .comp_dir = .{}, .tu_name = .{} };
+    var cu: CompileUnit = .{ .comp_dir = .init, .tu_name = .init };
     for (&[_]struct { Pos, *MachO.String }{
         .{ saved.comp_dir.?, &cu.comp_dir },
         .{ saved.tu_name.?, &cu.tu_name },
@@ -2349,7 +2349,7 @@ fn addAtom(self: *Object, allocator: Allocator, args: AddAtomArgs) !Atom.Index {
         .n_sect = args.n_sect,
         .size = args.size,
         .off = args.off,
-        .extra = try self.addAtomExtra(allocator, .{}),
+        .extra = try self.addAtomExtra(allocator, .init),
         .alignment = args.alignment,
     };
     return atom_index;
@@ -2677,8 +2677,8 @@ fn formatPath(
 
 const Section = struct {
     header: macho.section_64,
-    subsections: std.ArrayListUnmanaged(Subsection) = .{},
-    relocs: std.ArrayListUnmanaged(Relocation) = .{},
+    subsections: std.ArrayListUnmanaged(Subsection) = .empty,
+    relocs: std.ArrayListUnmanaged(Relocation) = .empty,
 };
 
 const Subsection = struct {
@@ -2694,7 +2694,7 @@ const Nlist = struct {
 
 const StabFile = struct {
     comp_dir: u32,
-    stabs: std.ArrayListUnmanaged(Stab) = .{},
+    stabs: std.ArrayListUnmanaged(Stab) = .empty,
 
     fn getCompDir(sf: StabFile, object: *const Object) [:0]const u8 {
         const nlist = object.symtab.items(.nlist)[sf.comp_dir];

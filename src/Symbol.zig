@@ -4,7 +4,7 @@
 value: u64 = 0,
 
 /// Offset into the linker's intern table.
-name: MachO.String = .{},
+name: MachO.String = .init,
 
 /// File where this symbol is defined.
 file: File.OptionalIndex = .none,
@@ -407,6 +407,15 @@ pub const Extra = struct {
     tlv_ptr: u32 = 0,
     symtab: u32 = 0,
     objc_selrefs: u32 = 0,
+
+    pub const init: Extra = .{
+        .got = 0,
+        .stubs = 0,
+        .objc_stubs = 0,
+        .tlv_ptr = 0,
+        .symtab = 0,
+        .objc_selrefs = 0,
+    };
 };
 
 pub const Index = enum(u32) {

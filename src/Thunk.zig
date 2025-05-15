@@ -1,6 +1,6 @@
 value: u64 = 0,
 out_n_sect: u8 = 0,
-symbols: std.AutoArrayHashMapUnmanaged(Symbol.UnwrappedRef, void) = .{},
+symbols: std.AutoArrayHashMapUnmanaged(Symbol.UnwrappedRef, void) = .empty,
 
 pub fn deinit(thunk: *Thunk, allocator: Allocator) void {
     thunk.symbols.deinit(allocator);
