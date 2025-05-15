@@ -1,4 +1,4 @@
-objects: std.ArrayListUnmanaged(Object) = .{},
+objects: std.ArrayListUnmanaged(Object) = .empty,
 
 // Archive files start with the ARMAG identifying string.  Then follows a
 // `struct ar_hdr', and as many bytes of member file data as its `ar_size'

@@ -3,9 +3,9 @@ file: fs.File,
 thread_pool: *ThreadPool,
 options: Options,
 
-warnings: std.ArrayListUnmanaged(ErrorMsg) = .{},
+warnings: std.ArrayListUnmanaged(ErrorMsg) = .empty,
 warnings_mutex: std.Thread.Mutex = .{},
-errors: std.ArrayListUnmanaged(ErrorMsg) = .{},
+errors: std.ArrayListUnmanaged(ErrorMsg) = .empty,
 errors_mutex: std.Thread.Mutex = .{},
 
 dyld_info_cmd: macho.dyld_info_command = .{},
@@ -19,22 +19,22 @@ uuid_cmd: macho.uuid_command = .{
 codesig_cmd: macho.linkedit_data_command = .{ .cmd = .CODE_SIGNATURE },
 
 internal_object_index: ?File.Index = null,
-objects: std.ArrayListUnmanaged(File.Index) = .{},
-dylibs: std.ArrayListUnmanaged(File.Index) = .{},
-files: std.MultiArrayList(File.Entry) = .{},
-file_handles: std.ArrayListUnmanaged(File.Handle) = .{},
+objects: std.ArrayListUnmanaged(File.Index) = .empty,
+dylibs: std.ArrayListUnmanaged(File.Index) = .empty,
+files: std.MultiArrayList(File.Entry) = .empty,
+file_handles: std.ArrayListUnmanaged(File.Handle) = .empty,
 
-segments: std.ArrayListUnmanaged(macho.segment_command_64) = .{},
-sections: std.MultiArrayList(Section) = .{},
+segments: std.ArrayListUnmanaged(macho.segment_command_64) = .empty,
+sections: std.MultiArrayList(Section) = .empty,
 
 resolver: SymbolResolver = .{},
 
 /// This table will be populated after `scanRelocs` has run.
 /// Key is symbol index.
-undefs: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, UndefRefs) = .{},
+undefs: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, UndefRefs) = .empty,
 undefs_mutex: std.Thread.Mutex = .{},
 
-dupes: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(File.Index)) = .{},
+dupes: std.AutoArrayHashMapUnmanaged(SymbolResolver.Index, std.ArrayListUnmanaged(File.Index)) = .empty,
 dupes_mutex: std.Thread.Mutex = .{},
 
 pagezero_seg_index: ?u8 = null,
@@ -50,8 +50,8 @@ eh_frame_sect_index: ?u8 = null,
 unwind_info_sect_index: ?u8 = null,
 objc_stubs_sect_index: ?u8 = null,
 
-symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
-strtab: std.ArrayListUnmanaged(u8) = .{},
+symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
+strtab: std.ArrayListUnmanaged(u8) = .empty,
 indsymtab: Indsymtab = .{},
 got: GotSection = .{},
 stubs: StubsSection = .{},
@@ -67,7 +67,7 @@ export_trie: ExportTrie = .{},
 unwind_info: UnwindInfo = .{},
 data_in_code: DataInCode = .{},
 
-thunks: std.ArrayListUnmanaged(Thunk) = .{},
+thunks: std.ArrayListUnmanaged(Thunk) = .empty,
 
 has_tlv: AtomicBool = AtomicBool.init(false),
 binds_to_weak: AtomicBool = AtomicBool.init(false),
@@ -3141,10 +3141,10 @@ pub const LinkObject = struct {
 const default_pagezero_vmsize: u64 = 0x100000000;
 
 pub const LiteralPool = struct {
-    table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
-    keys: std.ArrayListUnmanaged(Key) = .{},
-    values: std.ArrayListUnmanaged(Symbol.UnwrappedRef) = .{},
-    data: std.ArrayListUnmanaged(u8) = .{},
+    table: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
+    keys: std.ArrayListUnmanaged(Key) = .empty,
+    values: std.ArrayListUnmanaged(Symbol.UnwrappedRef) = .empty,
+    data: std.ArrayListUnmanaged(u8) = .empty,
 
     pub fn deinit(lp: *LiteralPool, allocator: Allocator) void {
         lp.table.deinit(allocator);
@@ -3228,23 +3228,36 @@ pub const LiteralPool = struct {
 const Section = struct {
     header: macho.section_64,
     segment_id: u8,
-    atoms: std.ArrayListUnmanaged(Atom.Ref) = .{},
-    thunks: std.ArrayListUnmanaged(Thunk.Index) = .{},
-    out: std.ArrayListUnmanaged(u8) = .{},
-    relocs: std.ArrayListUnmanaged(macho.relocation_info) = .{},
+    atoms: std.ArrayListUnmanaged(Atom.Ref) = .empty,
+    thunks: std.ArrayListUnmanaged(Thunk.Index) = .empty,
+    out: std.ArrayListUnmanaged(u8) = .empty,
+    relocs: std.ArrayListUnmanaged(macho.relocation_info) = .empty,
 };
 
 pub const SymtabCtx = struct {
-    ilocal: u32 = 0,
-    istab: u32 = 0,
-    iexport: u32 = 0,
-    iimport: u32 = 0,
-    nlocals: u32 = 0,
-    nstabs: u32 = 0,
-    nexports: u32 = 0,
-    nimports: u32 = 0,
-    stroff: u32 = 0,
-    strsize: u32 = 0,
+    ilocal: u32,
+    istab: u32,
+    iexport: u32,
+    iimport: u32,
+    nlocals: u32,
+    nstabs: u32,
+    nexports: u32,
+    nimports: u32,
+    stroff: u32,
+    strsize: u32,
+
+    pub const init: SymtabCtx = .{
+        .ilocal = 0,
+        .istab = 0,
+        .iexport = 0,
+        .iimport = 0,
+        .nlocals = 0,
+        .nstabs = 0,
+        .nexports = 0,
+        .nimports = 0,
+        .stroff = 0,
+        .strsize = 0,
+    };
 };
 
 pub const null_sym = macho.nlist_64{
@@ -3256,9 +3269,9 @@ pub const null_sym = macho.nlist_64{
 };
 
 pub const SymbolResolver = struct {
-    keys: std.ArrayListUnmanaged(Key) = .{},
-    values: std.ArrayListUnmanaged(Symbol.Ref) = .{},
-    table: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+    keys: std.ArrayListUnmanaged(Key) = .empty,
+    values: std.ArrayListUnmanaged(Symbol.Ref) = .empty,
+    table: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
 
     const Result = struct {
         found_existing: bool,
@@ -3365,13 +3378,18 @@ pub const UndefRefs = union(enum) {
 };
 
 pub const String = struct {
-    pos: u32 = 0,
-    len: u32 = 0,
+    pos: u32,
+    len: u32,
+
+    pub const init: String = .{
+        .pos = 0,
+        .len = 0,
+    };
 };
 
 pub const ErrorMsg = struct {
     msg: []const u8,
-    notes: std.ArrayListUnmanaged(ErrorMsg) = .{},
+    notes: std.ArrayListUnmanaged(ErrorMsg) = .empty,
 
     fn deinit(err: *ErrorMsg, allocator: Allocator) void {
         allocator.free(err.msg);
