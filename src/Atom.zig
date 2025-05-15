@@ -23,7 +23,7 @@ n_sect: u32 = 0,
 value: u64 = 0,
 
 /// Name of this Atom.
-name: MachO.String = .{},
+name: MachO.String = .init,
 
 /// Index of the output section.
 out_n_sect: u8 = 0,
@@ -312,7 +312,7 @@ fn reportUndefSymbol(self: Atom, rel: Relocation, macho_file: *MachO) !bool {
         const gpa = macho_file.allocator;
         const gop = try macho_file.undefs.getOrPut(gpa, file.getGlobals()[@intFromEnum(rel.target.symbol)]); // TODO unsafe
         if (!gop.found_existing) {
-            gop.value_ptr.* = .{ .atom_refs = .{} };
+            gop.value_ptr.* = .{ .atom_refs = .empty };
         }
         try gop.value_ptr.atom_refs.append(gpa, self.atom_index.toRef(self.file));
         return true;
@@ -950,31 +950,43 @@ pub const UnwrappedRef = struct {
 
 pub const Extra = struct {
     /// Index of the range extension thunk of this atom.
-    thunk: u32 = 0,
+    thunk: u32,
 
     /// Start index of relocations belonging to this atom.
-    rel_index: u32 = 0,
+    rel_index: u32,
 
     /// Count of relocations belonging to this atom.
-    rel_count: u32 = 0,
+    rel_count: u32,
 
     /// Start index of relocations being written out to file for this atom.
-    rel_out_index: u32 = 0,
+    rel_out_index: u32,
 
     /// Count of relocations written out to file for this atom.
-    rel_out_count: u32 = 0,
+    rel_out_count: u32,
 
     /// Start index of relocations belonging to this atom.
-    unwind_index: u32 = 0,
+    unwind_index: u32,
 
     /// Count of relocations belonging to this atom.
-    unwind_count: u32 = 0,
+    unwind_count: u32,
 
     /// Index into LiteralPool entry for this atom.
-    literal_pool_index: u32 = 0,
+    literal_pool_index: u32,
 
     /// Index into the File's symbol table for local symbol representing this literal atom.
-    literal_symbol_index: u32 = 0,
+    literal_symbol_index: u32,
+
+    pub const init: Extra = .{
+        .thunk = 0,
+        .rel_index = 0,
+        .rel_count = 0,
+        .rel_out_index = 0,
+        .rel_out_count = 0,
+        .unwind_index = 0,
+        .unwind_count = 0,
+        .literal_pool_index = 0,
+        .literal_symbol_index = 0,
+    };
 };
 
 const aarch64 = @import("aarch64.zig");
