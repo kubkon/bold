@@ -7,6 +7,7 @@ pub fn addTests(step: *Step, opts: Options) void {
     step.dependOn(testBuildVersionIOS(b, opts));
     step.dependOn(testDeadStrip(b, opts));
     step.dependOn(testDeadStripDylibs(b, opts));
+    step.dependOn(testDedupDylibs(b, opts));
     step.dependOn(testDylib(b, opts));
     step.dependOn(testDylibReexport(b, opts));
     step.dependOn(testDylibReexportDeep(b, opts));
@@ -380,6 +381,59 @@ fn testDeadStripDylibs(b: *Build, opts: Options) *Step {
         run.expectExitCode(@as(u8, @bitCast(@as(i8, -2))));
         test_step.dependOn(run.step());
     }
+
+    return test_step;
+}
+
+fn testDedupDylibs(b: *Build, opts: Options) *Step {
+    const test_step = b.step("test-macho-dedup-dylibs", "");
+
+    const obj = cc(b, "a.o", opts);
+    obj.addArg("-c");
+    obj.addCSource(
+        \\char world[] = "world";
+        \\char* hello() {
+        \\  return "Hello";
+        \\}
+    );
+
+    const dylib = ld(b, "liba.dylib", opts);
+    dylib.addFileSource(obj.getFile());
+    dylib.addArgs(&.{
+        "-dynamic",
+        "-syslibroot",
+        opts.macos_sdk,
+        "-dylib",
+        "-install_name",
+        "@rpath/liba.dylib",
+        "-lSystem",
+        "-lc",
+    });
+
+    const check = dylib.check();
+    check.checkInHeaders();
+    // Check that we only have one copy of libSystem present
+    check.checkContains("libSystem");
+    check.checkNotPresent("libSystem");
+    test_step.dependOn(&check.step);
+
+    const exe = cc(b, "main", opts);
+    exe.addCSource(
+        \\#include<stdio.h>
+        \\char* hello();
+        \\extern char world[];
+        \\int main() {
+        \\  printf("%s %s", hello(), world);
+        \\  return 0;
+        \\}
+    );
+    exe.addArg("-la");
+    exe.addPrefixedDirectorySource("-L", dylib.getDir());
+    exe.addPrefixedDirectorySource("-Wl,-rpath,", dylib.getDir());
+
+    const run = exe.run();
+    run.expectStdOutEqual("Hello world");
+    test_step.dependOn(run.step());
 
     return test_step;
 }
@@ -2801,7 +2855,6 @@ fn testSearchStrategy(b: *Build, opts: Options) *Step {
     const obj = cc(b, "a.o", opts);
     obj.addArg("-c");
     obj.addCSource(
-        \\#include<stdio.h>
         \\char world[] = "world";
         \\char* hello() {
         \\  return "Hello";
