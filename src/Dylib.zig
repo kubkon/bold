@@ -1011,6 +1011,25 @@ pub const Id = struct {
 
         return out;
     }
+
+    pub fn eql(id: Id, other: Id) bool {
+        return mem.eql(u8, id.name, other.name) and
+            id.timestamp == other.timestamp and
+            id.current_version == other.current_version and
+            id.compatibility_version == other.compatibility_version;
+    }
+
+    /// Hashes the Id.
+    /// TODO: we currently do differentiate between dylibs installed at the *same* path but having different
+    /// versions. This might be wrong and we should dedup them. Then again, surely this should be an error, right?
+    pub fn hash(id: Id) u64 {
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(id.name);
+        hasher.update(mem.asBytes(&id.timestamp));
+        hasher.update(mem.asBytes(&id.current_version));
+        hasher.update(mem.asBytes(&id.compatibility_version));
+        return hasher.final();
+    }
 };
 
 const Export = struct {

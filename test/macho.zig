@@ -407,6 +407,7 @@ fn testDedupDylibs(b: *Build, opts: Options) *Step {
         "-install_name",
         "@rpath/liba.dylib",
         "-lSystem",
+        "-lSystem",
         "-lc",
     });
 
