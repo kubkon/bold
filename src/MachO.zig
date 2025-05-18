@@ -249,6 +249,7 @@ pub fn link(self: *MachO) !void {
     }
 
     try self.parseInputFiles();
+    try self.dedupDylibs(resolved_objects.items);
     try self.parseDependentDylibs(arena, lib_dirs.items, framework_dirs.items);
 
     if (!self.options.relocatable) {
@@ -830,6 +831,58 @@ fn isHoisted(self: *MachO, install_name: []const u8) bool {
         }
     }
     return false;
+}
+
+fn dedupDylibs(self: *MachO, resolved_objects: []const LinkObject) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var map = std.HashMap(Dylib.Id, void, struct {
+        pub fn hash(ctx: @This(), id: Dylib.Id) u64 {
+            _ = ctx;
+            return id.hash();
+        }
+
+        pub fn eql(ctx: @This(), id: Dylib.Id, other: Dylib.Id) bool {
+            _ = ctx;
+            return id.eql(other);
+        }
+    }, std.hash_map.default_max_load_percentage).init(self.allocator);
+    defer map.deinit();
+    try map.ensureTotalCapacity(@intCast(self.dylibs.items.len));
+
+    var marked_dylibs = std.ArrayList(bool).init(self.allocator);
+    defer marked_dylibs.deinit();
+    try marked_dylibs.ensureTotalCapacityPrecise(self.dylibs.items.len);
+    marked_dylibs.resize(self.dylibs.items.len) catch unreachable;
+    @memset(marked_dylibs.items, false);
+
+    for (self.dylibs.items, marked_dylibs.items) |index, *marker| {
+        const dylib = self.getFile(index).dylib;
+        const cmd_object = resolved_objects[@intFromEnum(index)];
+
+        const gop = map.getOrPutAssumeCapacity(dylib.id.?);
+
+        if (!gop.found_existing) continue;
+
+        if (cmd_object.tag == .lib) {
+            self.warn("ignoring duplicate libraries: {}", .{cmd_object});
+        }
+
+        marker.* = true;
+    }
+
+    var i: usize = 0;
+    while (i < self.dylibs.items.len) {
+        const index = self.dylibs.items[i];
+        const marker = marked_dylibs.items[i];
+        if (marker) {
+            _ = self.dylibs.orderedRemove(i);
+            _ = marked_dylibs.orderedRemove(i);
+            self.files.items(.data)[@intFromEnum(index)].dylib.deinit(self.allocator);
+            self.files.set(@intFromEnum(index), .none);
+        } else i += 1;
+    }
 }
 
 fn parseDependentDylibs(
