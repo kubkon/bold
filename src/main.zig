@@ -55,7 +55,7 @@ pub const std_options: std.Options = .{ .logFn = logFn };
 
 fn print(comptime format: []const u8, args: anytype) void {
     const msg = std.fmt.allocPrint(gpa, format, args) catch return;
-    std.io.getStdErr().writeAll(msg) catch {};
+    std.fs.File.stderr().writeAll(msg) catch {};
 }
 
 fn fatal(comptime format: []const u8, args: anytype) noreturn {

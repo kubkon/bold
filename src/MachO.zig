@@ -3578,13 +3578,13 @@ pub fn getAllErrorsAlloc(self: *MachO) !ErrorBundle {
 }
 
 fn renderWarningToStdErr(eb: ErrorBundle) void {
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
-    const stderr = std.io.getStdErr();
-    return renderWarningToWriter(eb, stderr.writer()) catch return;
+    var buffer: [256]u8 = undefined;
+    const w = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+    return renderWarningToWriter(eb, w) catch return;
 }
 
-fn renderWarningToWriter(eb: ErrorBundle, writer: anytype) !void {
+fn renderWarningToWriter(eb: ErrorBundle, writer: *Writer) !void {
     for (eb.getMessages()) |msg| {
         try renderWarningMessageToWriter(eb, msg, writer, "warning", .cyan, 0);
     }
@@ -3593,12 +3593,12 @@ fn renderWarningToWriter(eb: ErrorBundle, writer: anytype) !void {
 fn renderWarningMessageToWriter(
     eb: ErrorBundle,
     err_msg_index: ErrorBundle.MessageIndex,
-    stderr: anytype,
+    stderr: *Writer,
     kind: []const u8,
     color: std.io.tty.Color,
     indent: usize,
 ) anyerror!void {
-    const ttyconf = std.io.tty.detectConfig(std.io.getStdErr());
+    const ttyconf = std.io.tty.detectConfig(std.fs.File.stderr());
     const err_msg = eb.getErrorMessage(err_msg_index);
     try ttyconf.setColor(stderr, color);
     try stderr.writeByteNTimes(' ', indent);
@@ -3623,7 +3623,7 @@ pub fn reportErrors(self: *MachO) void {
     var errors = self.getAllErrorsAlloc() catch @panic("OOM");
     defer errors.deinit(self.allocator);
     if (errors.errorMessageCount() > 0) {
-        errors.renderToStdErr(.{ .ttyconf = std.io.tty.detectConfig(std.io.getStdErr()) });
+        errors.renderToStdErr(.{ .ttyconf = std.io.tty.detectConfig(std.fs.File.stderr()) });
     }
 }
 
@@ -3692,3 +3692,4 @@ const TlvPtrSection = synthetic.TlvPtrSection;
 const UnwindInfo = @import("UnwindInfo.zig");
 const WaitGroup = std.Thread.WaitGroup;
 const WeakBind = synthetic.WeakBind;
+const Writer = std.Io.Writer;
