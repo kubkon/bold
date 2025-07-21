@@ -85,7 +85,7 @@ pub fn parse(self: *Archive, macho_file: *MachO, path: []const u8, file_handle: 
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
             macho_file.fatal("{s}: invalid header delimiter: expected '{s}', found '{s}'", .{
-                path, std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+                path, std.ascii.hexEscape(ARFMAG, .lower), std.ascii.hexEscape(&hdr.ar_fmag, .lower),
             });
             return error.ParseFailed;
         }

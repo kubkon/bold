@@ -543,7 +543,11 @@ fn inferCpuArchAndPlatformInObject(self: *MachO, obj: LinkObject, platforms: any
     const file = try std.fs.cwd().openFile(obj.path, .{});
     defer file.close();
 
-    const header = file.reader().readStruct(macho.mach_header_64) catch return;
+    var buffer: [1024]u8 = undefined;
+    var fr = file.reader(&buffer);
+    const reader = &fr.interface;
+
+    const header = reader.takeStruct(macho.mach_header_64, .little) catch return;
     if (header.filetype != macho.MH_OBJECT) return;
 
     const cpu_arch: std.Target.Cpu.Arch = switch (header.cputype) {
@@ -563,8 +567,7 @@ fn inferCpuArchAndPlatformInObject(self: *MachO, obj: LinkObject, platforms: any
 
     const cmds_buffer = try gpa.alloc(u8, header.sizeofcmds);
     defer gpa.free(cmds_buffer);
-    const amt = file.reader().readAll(cmds_buffer) catch return;
-    if (amt != header.sizeofcmds) return;
+    reader.readSliceAll(cmds_buffer) catch return;
 
     var it = macho.LoadCommandIterator{
         .ncmds = header.ncmds,
@@ -3601,7 +3604,8 @@ fn renderWarningMessageToWriter(
     const ttyconf = std.io.tty.detectConfig(std.fs.File.stderr());
     const err_msg = eb.getErrorMessage(err_msg_index);
     try ttyconf.setColor(stderr, color);
-    try stderr.writeByteNTimes(' ', indent);
+    const indentation = try stderr.writableSlice(indent);
+    @memset(indentation, ' ');
     try stderr.writeAll(kind);
     try stderr.writeAll(": ");
     try ttyconf.setColor(stderr, .reset);
