@@ -3635,10 +3635,6 @@ pub fn reportWarnings(self: *MachO) void {
     }
 }
 
-test {
-    std.testing.refAllDeclsRecursive(MachO);
-}
-
 const aarch64 = @import("aarch64.zig");
 const assert = std.debug.assert;
 const build_options = @import("build_options");

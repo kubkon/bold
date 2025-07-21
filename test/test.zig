@@ -15,13 +15,13 @@ pub fn addTests(b: *Build, comp: *Compile, build_opts: struct {
         .macos_sdk = undefined,
         .ios_sdk = null,
     };
-    opts.macos_sdk = std.zig.system.darwin.getSdk(b.allocator, builtin.target) orelse @panic("no macOS SDK found");
+    opts.macos_sdk = std.zig.system.darwin.getSdk(b.allocator, &builtin.target) orelse @panic("no macOS SDK found");
     opts.ios_sdk = blk: {
         const target = std.zig.system.resolveTargetQuery(.{
             .cpu_arch = .aarch64,
             .os_tag = .ios,
         }) catch break :blk null;
-        break :blk std.zig.system.darwin.getSdk(b.allocator, target);
+        break :blk std.zig.system.darwin.getSdk(b.allocator, &target);
     };
 
     macho.addTests(test_step, opts);

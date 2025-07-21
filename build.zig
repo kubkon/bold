@@ -29,15 +29,18 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = mode,
     });
-
-    const exe = b.addExecutable(.{
-        .name = "bold",
+    const main = b.addModule("bold", .{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = mode,
-        .use_llvm = use_llvm,
         .sanitize_thread = sanitize_thread,
         .single_threaded = single_threaded,
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "bold",
+        .root_module = main,
+        .use_llvm = use_llvm,
     });
     exe.root_module.addImport("yaml", yaml.module("yaml"));
     exe.root_module.addImport("dis_x86_64", dis_x86_64.module("dis_x86_64"));
@@ -78,12 +81,8 @@ pub fn build(b: *std.Build) void {
     const is_nix = b.option(bool, "nix", "Whether the host is Nix-based") orelse false;
 
     const unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/MachO.zig"),
-        .target = target,
-        .optimize = mode,
+        .root_module = main,
         .use_llvm = use_llvm,
-        .sanitize_thread = sanitize_thread,
-        .single_threaded = single_threaded,
     });
     const unit_tests_opts = b.addOptions();
     unit_tests.root_module.addOptions("build_options", unit_tests_opts);
