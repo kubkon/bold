@@ -589,7 +589,7 @@ fn classifyInputFile(self: *MachO, obj: LinkObject) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    log.debug("parsing positional {}", .{obj});
+    log.debug("parsing positional {f}", .{obj});
 
     const file = try std.fs.cwd().openFile(obj.path, .{});
     const fh = try self.addFileHandle(file);
@@ -810,10 +810,9 @@ fn parseDylibWorker(self: *MachO, index: File.Index) void {
     dylib.parse(self) catch |err| {
         switch (err) {
             error.ParseFailed => {}, // reported already
-            else => |e| self.fatal("{s}: unexpected error occurred while parsing input file: {s}: {f}", .{
+            else => |e| self.fatal("{s}: unexpected error occurred while parsing input file: {s}", .{
                 dylib.path,
                 @errorName(e),
-                @errorReturnTrace(),
             }),
         }
         _ = self.has_errors.swap(true, .seq_cst);
@@ -869,7 +868,7 @@ fn dedupDylibs(self: *MachO, resolved_objects: []const LinkObject) !void {
         if (!gop.found_existing) continue;
 
         if (cmd_object.tag == .lib) {
-            self.warn("ignoring duplicate libraries: {}", .{cmd_object});
+            self.warn("ignoring duplicate libraries: {f}", .{cmd_object});
         }
 
         marker.* = true;
@@ -1296,12 +1295,12 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
         const err = try self.addErrorWithNotes(nnotes + 1);
         defer err.unlock();
         try err.addMsg("duplicate symbol definition: {s}", .{sym.getName(self)});
-        try err.addNote("defined by {}", .{sym.getFile(self).fmtPath()});
+        try err.addNote("defined by {f}", .{sym.getFile(self).fmtPath()});
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
             const file = self.getFile(notes.items[inote]);
-            try err.addNote("defined by {}", .{file.fmtPath()});
+            try err.addNote("defined by {f}", .{file.fmtPath()});
         }
 
         if (notes.items.len > max_notes) {
@@ -1441,7 +1440,7 @@ fn reportUndefs(self: *MachO) !void {
                     const ref = refs.items[inote].unwrap().?;
                     const file = self.getFile(ref.file);
                     const atom = file.getAtom(ref.atom);
-                    try err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
+                    try err.addNote("referenced by {f}:{s}", .{ file.fmtPath(), atom.getName(self) });
                 }
 
                 if (refs.items.len > max_notes) {
@@ -3082,7 +3081,7 @@ fn formatSegments(self: *MachO, writer: *Writer) Writer.Error!void {
     }
 }
 
-pub fn fmtSectType(tt: u8) std.fmt.Formatter(*MachO, formatSectType) {
+pub fn fmtSectType(tt: u8) std.fmt.Formatter(u8, formatSectType) {
     return .{ .data = tt };
 }
 

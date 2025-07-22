@@ -229,7 +229,7 @@ fn stripLocalsWorker(object: *Object, macho_file: *MachO) void {
     const tracy = trace(@src());
     defer tracy.end();
     object.stripLocalsRelocatable(macho_file) catch |err| {
-        macho_file.fatal("failed to strip local symbols in object {}: {s}", .{
+        macho_file.fatal("failed to strip local symbols in object {f}: {s}", .{
             object.fmtPath(),
             @errorName(err),
         });

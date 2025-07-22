@@ -16,7 +16,7 @@ pub const File = union(enum) {
     fn formatPath(file: File, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (file) {
             .internal => try writer.writeAll(""),
-            .object => |x| try writer.print("{}", .{x.fmtPath()}),
+            .object => |x| try writer.print("{f}", .{x.fmtPath()}),
             .dylib => |x| try writer.writeAll(x.path),
         }
     }

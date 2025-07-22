@@ -148,7 +148,7 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
         if (match) |this_plat| {
             if (this_plat.version.value > plat.version.value) {
                 macho_file.warn(
-                    "{s}: object file was built for newer platform version: expected {}, got {}",
+                    "{s}: object file was built for newer platform version: expected {f}, got {f}",
                     .{
                         self.path,
                         plat.version,

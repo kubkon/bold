@@ -175,7 +175,7 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
         if (match) |this_plat| {
             if (this_plat.version.value > plat.version.value) {
                 macho_file.warn(
-                    "{f}: object file was built for newer platform version: expected {}, got {}",
+                    "{f}: object file was built for newer platform version: expected {f}, got {f}",
                     .{
                         self.fmtPath(),
                         plat.version,

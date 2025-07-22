@@ -1568,7 +1568,7 @@ fn testHelloZig(b: *Build, opts: Options) *Step {
     obj.addZigSource(
         \\const std = @import("std");
         \\pub fn main() void {
-        \\    std.io.getStdOut().writer().print("Hello world!\n", .{}) catch unreachable;
+        \\    std.fs.File.stdout().writeAll("Hello world!\n") catch unreachable;
         \\}
     );
     obj.addArg("-fno-stack-check"); // TODO find a way to include Zig's crt
