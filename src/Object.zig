@@ -2508,39 +2508,19 @@ fn readSectionData(self: Object, allocator: Allocator, file: File.Handle, n_sect
     return data;
 }
 
-pub fn format(
-    self: *Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = self;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format objects directly");
-}
-
 const FormatContext = struct {
     object: *Object,
     macho_file: *MachO,
 };
 
-pub fn fmtAtoms(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatAtoms) {
+pub fn fmtAtoms(self: *Object, macho_file: *MachO) std.fmt.Formatter(FormatContext, formatAtoms) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatAtoms(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const object = ctx.object;
     const macho_file = ctx.macho_file;
     try writer.writeAll("  atoms\n");
@@ -2550,21 +2530,14 @@ fn formatAtoms(
     }
 }
 
-pub fn fmtCies(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatCies) {
+pub fn fmtCies(self: *Object, macho_file: *MachO) std.fmt.Formatter(FormatContext, formatCies) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatCies(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatCies(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const object = ctx.object;
     try writer.writeAll("  cies\n");
     for (object.cies.items, 0..) |cie, i| {
@@ -2572,21 +2545,14 @@ fn formatCies(
     }
 }
 
-pub fn fmtFdes(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatFdes) {
+pub fn fmtFdes(self: *Object, macho_file: *MachO) std.fmt.Formatter(FormatContext, formatFdes) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatFdes(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatFdes(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const object = ctx.object;
     try writer.writeAll("  fdes\n");
     for (object.fdes.items, 0..) |fde, i| {
@@ -2594,21 +2560,14 @@ fn formatFdes(
     }
 }
 
-pub fn fmtUnwindRecords(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatUnwindRecords) {
+pub fn fmtUnwindRecords(self: *Object, macho_file: *MachO) std.fmt.Formatter(FormatContext, formatUnwindRecords) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatUnwindRecords(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatUnwindRecords(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const object = ctx.object;
     const macho_file = ctx.macho_file;
     try writer.writeAll("  unwind records\n");
@@ -2617,21 +2576,14 @@ fn formatUnwindRecords(
     }
 }
 
-pub fn fmtSymtab(self: *Object, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *Object, macho_file: *MachO) std.fmt.Formatter(FormatContext, formatSymtab) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatSymtab(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const object = ctx.object;
     const macho_file = ctx.macho_file;
     try writer.writeAll("  symbols\n");
@@ -2655,18 +2607,14 @@ fn formatSymtab(
     }
 }
 
-pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Formatter(Object, formatPath) {
     return .{ .data = self };
 }
 
 fn formatPath(
     object: Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+    writer: *std.Io.Writer,
+) std.Io.Writer.Error!void {
     if (object.ar_name) |path| {
         try writer.writeAll(path);
         try writer.writeByte('(');
@@ -2725,33 +2673,13 @@ const StabFile = struct {
             return &object.symbols.items[@intFromEnum(index)];
         }
 
-        pub fn format(
-            stab: Stab,
-            comptime unused_fmt_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = stab;
-            _ = unused_fmt_string;
-            _ = options;
-            _ = writer;
-            @compileError("do not format stabs directly");
-        }
-
         const StabFormatContext = struct { Stab, *const Object };
 
-        pub fn fmt(stab: Stab, object: *const Object) std.fmt.Formatter(format2) {
+        pub fn fmt(stab: Stab, object: *const Object) std.fmt.Formatter(StabFormatContext, format) {
             return .{ .data = .{ stab, object } };
         }
 
-        fn format2(
-            ctx: StabFormatContext,
-            comptime unused_fmt_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = unused_fmt_string;
-            _ = options;
+        fn format(ctx: StabFormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const stab, const object = ctx;
             const sym = stab.getSymbol(object).?;
             if (stab.is_func) {

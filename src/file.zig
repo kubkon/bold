@@ -9,18 +9,11 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn fmtPath(file: File) std.fmt.Formatter(formatPath) {
+    pub fn fmtPath(file: File) std.fmt.Formatter(File, formatPath) {
         return .{ .data = file };
     }
 
-    fn formatPath(
-        file: File,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn formatPath(file: File, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (file) {
             .internal => try writer.writeAll(""),
             .object => |x| try writer.print("{}", .{x.fmtPath()}),
@@ -256,14 +249,7 @@ pub const File = union(enum) {
             return @intFromEnum(index) < @intFromEnum(other);
         }
 
-        pub fn format(
-            index: Index,
-            comptime unused_fmt_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = unused_fmt_string;
-            _ = options;
+        pub fn format(index: Index, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             try writer.print("{d}", .{@intFromEnum(index)});
         }
     };
@@ -281,14 +267,7 @@ pub const File = union(enum) {
             return @intFromEnum(index) == @intFromEnum(other);
         }
 
-        pub fn format(
-            opt: OptionalIndex,
-            comptime unused_fmt_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = unused_fmt_string;
-            _ = options;
+        pub fn format(opt: OptionalIndex, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             if (opt == .none) {
                 try writer.writeAll(".none");
             } else {

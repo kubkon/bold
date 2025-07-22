@@ -811,20 +811,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
     assert(i == buffer.len);
 }
 
-pub fn format(
-    atom: Atom,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = atom;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format Atom directly");
-}
-
-pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Formatter(format2) {
+pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Formatter(FormatContext, format) {
     return .{ .data = .{
         .atom = atom,
         .macho_file = macho_file,
@@ -836,14 +823,7 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn format(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const atom = ctx.atom;
     const macho_file = ctx.macho_file;
     const file = atom.getFile(macho_file);
@@ -881,14 +861,7 @@ pub const Index = enum(u32) {
         return result;
     }
 
-    pub fn format(
-        index: Index,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    pub fn format(index: Index, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("{d}", .{@intFromEnum(index)});
     }
 };
@@ -902,14 +875,7 @@ pub const OptionalIndex = enum(u32) {
         return @enumFromInt(@intFromEnum(opt));
     }
 
-    pub fn format(
-        opt: OptionalIndex,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    pub fn format(opt: OptionalIndex, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         if (opt == .none) {
             try writer.writeAll(".none");
         } else {

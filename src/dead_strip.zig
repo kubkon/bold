@@ -192,14 +192,7 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(
-        self: *const @This(),
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    pub fn format(self: *const @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.writeByteNTimes(' ', self.value);
     }
 };

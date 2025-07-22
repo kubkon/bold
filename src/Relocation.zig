@@ -59,18 +59,11 @@ pub fn lessThan(ctx: void, lhs: Relocation, rhs: Relocation) bool {
 
 const FormatCtx = struct { Relocation, std.Target.Cpu.Arch };
 
-pub fn fmtPretty(rel: Relocation, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(formatPretty) {
+pub fn fmtPretty(rel: Relocation, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(FormatCtx, formatPretty) {
     return .{ .data = .{ rel, cpu_arch } };
 }
 
-fn formatPretty(
-    ctx: FormatCtx,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn formatPretty(ctx: FormatCtx, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const rel, const cpu_arch = ctx;
     const str = switch (rel.type) {
         .signed => "X86_64_RELOC_SIGNED",

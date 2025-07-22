@@ -205,7 +205,7 @@ pub const InfoReader = struct {
             dw.FORM.data4, dw.FORM.ref4 => try p.readInt(u32),
             dw.FORM.data8, dw.FORM.ref8, dw.FORM.ref_sig8 => try p.readInt(u64),
             dw.FORM.udata, dw.FORM.ref_udata => try p.readUleb128(u64),
-            dw.FORM.sdata => @bitCast(try p.readILEB128(i64)),
+            dw.FORM.sdata => @bitCast(try p.readIleb128(i64)),
             else => return error.UnhandledForm,
         };
     }
@@ -289,10 +289,10 @@ pub const InfoReader = struct {
         return value;
     }
 
-    pub fn readILEB128(p: *InfoReader, comptime Type: type) !Type {
+    pub fn readIleb128(p: *InfoReader, comptime Type: type) !Type {
         var stream = std.io.fixedBufferStream(p.bytes()[p.pos..]);
         var creader = std.io.countingReader(stream.reader());
-        const value: Type = try leb.readILEB128(Type, creader.reader());
+        const value: Type = try leb.readIleb128(Type, creader.reader());
         p.pos += creader.bytes_read;
         return value;
     }

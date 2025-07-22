@@ -41,18 +41,11 @@ pub const GotSection = struct {
         macho_file: *MachO,
     };
 
-    pub fn fmt(got: GotSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(got: GotSection, macho_file: *MachO) std.fmt.Formatter(FormatCtx, format) {
         return .{ .data = .{ .got = got, .macho_file = macho_file } };
     }
 
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
+    pub fn format(ctx: FormatCtx, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         for (ctx.got.symbols.items, 0..) |ref, i| {
             const symbol = ref.getSymbol(ctx.macho_file);
             try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{
@@ -132,18 +125,11 @@ pub const StubsSection = struct {
         macho_file: *MachO,
     };
 
-    pub fn fmt(stubs: StubsSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(stubs: StubsSection, macho_file: *MachO) std.fmt.Formatter(FormatCtx, format) {
         return .{ .data = .{ .stubs = stubs, .macho_file = macho_file } };
     }
 
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
+    pub fn format(ctx: FormatCtx, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         for (ctx.stubs.symbols.items, 0..) |ref, i| {
             const symbol = ref.getSymbol(ctx.macho_file);
             try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{
@@ -361,18 +347,11 @@ pub const TlvPtrSection = struct {
         macho_file: *MachO,
     };
 
-    pub fn fmt(tlv: TlvPtrSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(tlv: TlvPtrSection, macho_file: *MachO) std.fmt.Formatter(FormatCtx, format) {
         return .{ .data = .{ .tlv = tlv, .macho_file = macho_file } };
     }
 
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
+    pub fn format(ctx: FormatCtx, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         for (ctx.tlv.symbols.items, 0..) |ref, i| {
             const symbol = ref.getSymbol(ctx.macho_file);
             try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{
@@ -486,18 +465,11 @@ pub const ObjcStubsSection = struct {
         macho_file: *MachO,
     };
 
-    pub fn fmt(objc: ObjcStubsSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(objc: ObjcStubsSection, macho_file: *MachO) std.fmt.Formatter(FormatCtx, format) {
         return .{ .data = .{ .objc = objc, .macho_file = macho_file } };
     }
 
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
+    pub fn format(ctx: FormatCtx, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         for (ctx.objc.symbols.items, 0..) |ref, i| {
             const symbol = ref.getSymbol(ctx.macho_file);
             try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{

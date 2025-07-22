@@ -792,20 +792,7 @@ pub fn setSymbolExtra(self: *Dylib, index: u32, extra: Symbol.Extra) void {
     }
 }
 
-pub fn format(
-    self: *Dylib,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = self;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format dylib directly");
-}
-
-pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Formatter(FormatContext, formatSymtab) {
     return .{ .data = .{
         .dylib = self,
         .macho_file = macho_file,
@@ -817,14 +804,7 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatSymtab(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const dylib = ctx.dylib;
     const macho_file = ctx.macho_file;
     try writer.writeAll("  globals\n");

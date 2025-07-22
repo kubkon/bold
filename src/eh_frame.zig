@@ -80,20 +80,7 @@ pub const Cie = struct {
         return true;
     }
 
-    pub fn format(
-        cie: Cie,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = cie;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format CIEs directly");
-    }
-
-    pub fn fmt(cie: Cie, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(cie: Cie, macho_file: *MachO) std.fmt.Formatter(FormatContext, format) {
         return .{ .data = .{
             .cie = cie,
             .macho_file = macho_file,
@@ -105,14 +92,7 @@ pub const Cie = struct {
         macho_file: *MachO,
     };
 
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn format(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const cie = ctx.cie;
         try writer.print("@{x} : size({x})", .{
             cie.offset,
@@ -124,14 +104,7 @@ pub const Cie = struct {
     pub const Index = enum(u32) {
         _,
 
-        pub fn format(
-            index: Index,
-            comptime unused_fmt_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = unused_fmt_string;
-            _ = options;
+        pub fn format(index: Index, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             try writer.print("{d}", .{@intFromEnum(index)});
         }
     };
@@ -245,20 +218,7 @@ pub const Fde = struct {
         return fde.getObject(macho_file).getAtom(atom_index);
     }
 
-    pub fn format(
-        fde: Fde,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fde;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format FDEs directly");
-    }
-
-    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Formatter(FormatContext, format) {
         return .{ .data = .{
             .fde = fde,
             .macho_file = macho_file,
@@ -270,14 +230,7 @@ pub const Fde = struct {
         macho_file: *MachO,
     };
 
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn format(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const fde = ctx.fde;
         const macho_file = ctx.macho_file;
         try writer.print("@{x} : size({x}) : cie({d}) : {s}", .{

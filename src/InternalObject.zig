@@ -832,21 +832,14 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-pub fn fmtAtoms(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(formatAtoms) {
+pub fn fmtAtoms(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(FormatContext, formatAtoms) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatAtoms(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.writeAll("  atoms\n");
     for (ctx.self.getAtoms()) |atom_index| {
         const atom = ctx.self.getAtom(atom_index);
@@ -854,21 +847,14 @@ fn formatAtoms(
     }
 }
 
-pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(FormatContext, formatSymtab) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatSymtab(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const macho_file = ctx.macho_file;
     const self = ctx.self;
     try writer.writeAll("  symbols\n");

@@ -44,20 +44,7 @@ pub fn isReachable(atom: *const Atom, rel: Relocation, macho_file: *MachO) bool 
     return true;
 }
 
-pub fn format(
-    thunk: Thunk,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = thunk;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format Thunk directly");
-}
-
-pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Formatter(format2) {
+pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Formatter(FormatContext, format) {
     return .{ .data = .{
         .thunk = thunk,
         .macho_file = macho_file,
@@ -69,14 +56,7 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn format(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const thunk = ctx.thunk;
     const macho_file = ctx.macho_file;
     try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size() });
