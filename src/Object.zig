@@ -311,7 +311,7 @@ fn initSubsections(self: *Object, allocator: Allocator, nlists: anytype) !void {
         } else nlists.len;
 
         if (nlist_start == nlist_end or nlists[nlist_start].nlist.n_value > sect.addr) {
-            const name = try std.fmt.allocPrintZ(allocator, "{s}${s}$start", .{ sect.segName(), sect.sectName() });
+            const name = try std.fmt.allocPrintSentinel(allocator, "{s}${s}$start", .{ sect.segName(), sect.sectName() }, 0);
             defer allocator.free(name);
             const size = if (nlist_start == nlist_end) sect.size else nlists[nlist_start].nlist.n_value - sect.addr;
             const atom_index = try self.addAtom(allocator, .{
@@ -389,7 +389,7 @@ fn initSections(self: *Object, allocator: Allocator, nlists: anytype) !void {
         const subsections = &slice.items(.subsections)[n_sect];
 
         {
-            const name = try std.fmt.allocPrintZ(allocator, "{s}${s}", .{ sect.segName(), sect.sectName() });
+            const name = try std.fmt.allocPrintSentinel(allocator, "{s}${s}", .{ sect.segName(), sect.sectName() }, 0);
             defer allocator.free(name);
 
             const atom_index = try self.addAtom(allocator, .{
@@ -466,7 +466,7 @@ fn initCstringLiterals(self: *Object, allocator: Allocator, file: File.Handle, m
             }
             end += 1;
 
-            const name = try std.fmt.allocPrintZ(allocator, "l._str{d}", .{count});
+            const name = try std.fmt.allocPrintSentinel(allocator, "l._str{d}", .{count}, 0);
             defer allocator.free(name);
             const name_str = try self.addString(allocator, name);
 
@@ -533,7 +533,7 @@ fn initFixedSizeLiterals(self: *Object, allocator: Allocator, macho_file: *MachO
             pos += rec_size;
             count += 1;
         }) {
-            const name = try std.fmt.allocPrintZ(allocator, "l._literal{d}", .{count});
+            const name = try std.fmt.allocPrintSentinel(allocator, "l._literal{d}", .{count}, 0);
             defer allocator.free(name);
             const name_str = try self.addString(allocator, name);
 
@@ -591,7 +591,7 @@ fn initPointerLiterals(self: *Object, allocator: Allocator, macho_file: *MachO) 
         for (0..num_ptrs) |i| {
             const pos: u32 = @as(u32, @intCast(i)) * rec_size;
 
-            const name = try std.fmt.allocPrintZ(allocator, "l._ptr{d}", .{i});
+            const name = try std.fmt.allocPrintSentinel(allocator, "l._ptr{d}", .{i}, 0);
             defer allocator.free(name);
             const name_str = try self.addString(allocator, name);
 
@@ -1606,7 +1606,7 @@ pub fn convertTentativeDefinitions(self: *Object, macho_file: *MachO) !void {
         const nlist = &self.symtab.items(.nlist)[i];
         const nlist_atom = &self.symtab.items(.atom)[i];
 
-        const name = try std.fmt.allocPrintZ(gpa, "__DATA$__common${s}", .{sym.getName(macho_file)});
+        const name = try std.fmt.allocPrintSentinel(gpa, "__DATA$__common${s}", .{sym.getName(macho_file)}, 0);
         defer gpa.free(name);
 
         const alignment = (nlist.n_desc >> 8) & 0x0f;
@@ -1724,9 +1724,9 @@ pub fn stripLocalsRelocatable(self: *Object, macho_file: *MachO) !void {
         if (sym.isSymbolStab(macho_file)) continue;
         if (!sym.isLocal()) continue;
         // Pad to
-        const name = try std.fmt.allocPrintZ(gpa, "l{d:0>3}", .{
+        const name = try std.fmt.allocPrintSentinel(gpa, "l{d:0>3}", .{
             macho_file.strip_locals_counter.fetchAdd(1, .seq_cst),
-        });
+        }, 0);
         defer gpa.free(name);
         sym.name = try self.addString(gpa, name);
     }
@@ -2361,7 +2361,7 @@ fn addAtom(self: *Object, allocator: Allocator, args: AddAtomArgs) !Atom.Index {
 /// zero-sized atom), we need to create it first.
 fn addSectionStopAtom(self: *Object, allocator: Allocator, n_sect: u8) !Atom.Index {
     const sect = self.sections.items(.header)[n_sect];
-    const name = try std.fmt.allocPrintZ(allocator, "{s}${s}$stop", .{ sect.segName(), sect.sectName() });
+    const name = try std.fmt.allocPrintSentinel(allocator, "{s}${s}$stop", .{ sect.segName(), sect.sectName() }, 0);
     defer allocator.free(name);
     return self.addAtom(allocator, .{
         .name = try self.addString(allocator, name),
