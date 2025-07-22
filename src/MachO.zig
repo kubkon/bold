@@ -298,7 +298,7 @@ pub fn link(self: *MachO) !void {
     self.allocateSegments();
     self.allocateSyntheticSymbols();
 
-    state_log.debug("{}", .{self.dumpState()});
+    state_log.debug("{f}", .{self.dumpState()});
 
     try self.resizeSections();
     try self.writeSectionsAndUpdateLinkeditSizes();
@@ -456,7 +456,7 @@ fn resolvePaths(
                     var buffer: [fs.max_path_bytes]u8 = undefined;
                     const full_path = std.fs.realpath(obj.path, &buffer) catch |err| switch (err) {
                         error.FileNotFound => {
-                            self.fatal("file not found {}", .{obj});
+                            self.fatal("file not found {f}", .{obj});
                             has_resolve_error = true;
                             continue;
                         },
@@ -468,7 +468,7 @@ fn resolvePaths(
                     const full_path = (try self.resolveLib(arena, lib_dirs, obj.path)) orelse {
                         const err = try self.addErrorWithNotes(lib_dirs.len);
                         defer err.unlock();
-                        try err.addMsg("library not found for {}", .{obj});
+                        try err.addMsg("library not found for {f}", .{obj});
                         for (lib_dirs) |dir| try err.addNote("tried {s}", .{dir});
                         has_resolve_error = true;
                         continue;
@@ -479,7 +479,7 @@ fn resolvePaths(
                     const full_path = (try self.resolveFramework(arena, framework_dirs, obj.path)) orelse {
                         const err = try self.addErrorWithNotes(framework_dirs.len);
                         defer err.unlock();
-                        try err.addMsg("framework not found for {}", .{obj});
+                        try err.addMsg("framework not found for {f}", .{obj});
                         for (framework_dirs) |dir| try err.addNote("tried {s}", .{dir});
                         has_resolve_error = true;
                         continue;
@@ -719,7 +719,7 @@ fn parseObjectWorker(self: *MachO, index: File.Index) void {
     object.parse(self) catch |err| {
         switch (err) {
             error.ParseFailed => {}, // reported
-            else => |e| self.fatal("{}: unxexpected error occurred while parsing input file: {s}", .{
+            else => |e| self.fatal("{f}: unxexpected error occurred while parsing input file: {s}", .{
                 object.fmtPath(),
                 @errorName(e),
             }),
@@ -810,7 +810,7 @@ fn parseDylibWorker(self: *MachO, index: File.Index) void {
     dylib.parse(self) catch |err| {
         switch (err) {
             error.ParseFailed => {}, // reported already
-            else => |e| self.fatal("{s}: unexpected error occurred while parsing input file: {s}: {?}", .{
+            else => |e| self.fatal("{s}: unexpected error occurred while parsing input file: {s}: {f}", .{
                 dylib.path,
                 @errorName(e),
                 @errorReturnTrace(),
@@ -1142,7 +1142,7 @@ fn convertTentativeDefinitionsWorker(self: *MachO, index: File.Index) void {
 
     const object = self.getFile(index).object;
     object.convertTentativeDefinitions(self) catch |err| {
-        self.fatal("{s}: unexpected error occurred while converting tentative symbols into defined symbols: {s}", .{
+        self.fatal("{f}: unexpected error occurred while converting tentative symbols into defined symbols: {s}", .{
             object.fmtPath(),
             @errorName(err),
         });
@@ -1254,7 +1254,7 @@ fn checkDuplicatesWorker(self: *MachO, file: File) void {
     const tracy = trace(@src());
     defer tracy.end();
     file.checkDuplicates(self) catch |err| {
-        self.fatal("{}: failed to check duplicate definitions: {s}", .{
+        self.fatal("{f}: failed to check duplicate definitions: {s}", .{
             file.fmtPath(),
             @errorName(err),
         });
@@ -1349,7 +1349,7 @@ fn scanRelocs(self: *MachO) !void {
 
 fn scanRelocsWorker(self: *MachO, file: File) void {
     file.scanRelocs(self) catch |err| {
-        self.fatal("{}: failed to scan relocations: {s}", .{
+        self.fatal("{f}: failed to scan relocations: {s}", .{
             file.fmtPath(),
             @errorName(err),
         });
@@ -2292,7 +2292,7 @@ fn writeAtomsWorker(self: *MachO, index: File.Index) void {
     const tracy = trace(@src());
     defer tracy.end();
     self.getFile(index).writeAtoms(self) catch |err| {
-        self.fatal("{}: failed to write atoms: {s}", .{
+        self.fatal("{f}: failed to write atoms: {s}", .{
             self.getFile(index).fmtPath(),
             @errorName(err),
         });
@@ -2995,7 +2995,7 @@ fn createThunks(self: *MachO, sect_id: u8) !void {
         try scanRelocations(thunk_index, gpa, atoms[start..i], self);
         thunk.value = try advance(header, thunk.size(), 2);
 
-        log.debug("thunk({d}) : {}", .{ thunk_index, thunk.fmt(self) });
+        log.debug("thunk({d}) : {f}", .{ thunk_index, thunk.fmt(self) });
     }
 }
 
@@ -3011,14 +3011,14 @@ pub fn dumpState(self: *MachO) std.fmt.Formatter(*MachO, fmtDumpState) {
 fn fmtDumpState(self: *MachO, writer: *Writer) Writer.Error!void {
     for (self.objects.items) |index| {
         const object = self.getFile(index).object;
-        try writer.print("object({d}) : {} : has_debug({})", .{
+        try writer.print("object({d}) : {f} : has_debug({any})", .{
             index,
             object.fmtPath(),
             object.hasDebugInfo(),
         });
         if (!object.alive) try writer.writeAll(" : ([*])");
         try writer.writeByte('\n');
-        try writer.print("{}{}{}{}{}\n", .{
+        try writer.print("{f}{f}{f}{f}{f}\n", .{
             object.fmtAtoms(self),
             object.fmtCies(self),
             object.fmtFdes(self),
@@ -3028,7 +3028,7 @@ fn fmtDumpState(self: *MachO, writer: *Writer) Writer.Error!void {
     }
     for (self.dylibs.items) |index| {
         const dylib = self.getFile(index).dylib;
-        try writer.print("dylib({d}) : {s} : needed({}) : weak({})", .{
+        try writer.print("dylib({d}) : {s} : needed({any}) : weak({any})", .{
             index,
             dylib.path,
             dylib.needed,
@@ -3036,23 +3036,23 @@ fn fmtDumpState(self: *MachO, writer: *Writer) Writer.Error!void {
         });
         if (!dylib.isAlive(self)) try writer.writeAll(" : ([*])");
         try writer.writeByte('\n');
-        try writer.print("{}\n", .{dylib.fmtSymtab(self)});
+        try writer.print("{f}\n", .{dylib.fmtSymtab(self)});
     }
     if (self.getInternalObject()) |internal| {
         try writer.print("internal({d}) : internal\n", .{internal.index});
-        try writer.print("{}{}\n", .{ internal.fmtAtoms(self), internal.fmtSymtab(self) });
+        try writer.print("{f}{f}\n", .{ internal.fmtAtoms(self), internal.fmtSymtab(self) });
     }
     try writer.writeAll("thunks\n");
     for (self.thunks.items, 0..) |thunk, index| {
-        try writer.print("thunk({d}) : {}\n", .{ index, thunk.fmt(self) });
+        try writer.print("thunk({d}) : {f}\n", .{ index, thunk.fmt(self) });
     }
-    try writer.print("stubs\n{}\n", .{self.stubs.fmt(self)});
-    try writer.print("objc_stubs\n{}\n", .{self.objc_stubs.fmt(self)});
-    try writer.print("got\n{}\n", .{self.got.fmt(self)});
-    try writer.print("tlv_ptr\n{}\n", .{self.tlv_ptr.fmt(self)});
+    try writer.print("stubs\n{f}\n", .{self.stubs.fmt(self)});
+    try writer.print("objc_stubs\n{f}\n", .{self.objc_stubs.fmt(self)});
+    try writer.print("got\n{f}\n", .{self.got.fmt(self)});
+    try writer.print("tlv_ptr\n{f}\n", .{self.tlv_ptr.fmt(self)});
     try writer.writeByte('\n');
-    try writer.print("sections\n{}\n", .{self.fmtSections()});
-    try writer.print("segments\n{}\n", .{self.fmtSegments()});
+    try writer.print("sections\n{f}\n", .{self.fmtSections()});
+    try writer.print("segments\n{f}\n", .{self.fmtSegments()});
 }
 
 fn fmtSections(self: *MachO) std.fmt.Formatter(*MachO, formatSections) {

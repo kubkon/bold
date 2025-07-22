@@ -121,7 +121,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     for (info.records.items) |ref| {
         const rec = ref.getUnwindRecord(macho_file);
         const atom = rec.getAtom(macho_file);
-        log.debug("@{x}-{x} : {s} : rec({d}) : {}", .{
+        log.debug("@{x}-{x} : {s} : rec({d}) : {f}", .{
             rec.getAtomAddress(macho_file),
             rec.getAtomAddress(macho_file) + rec.length,
             atom.getName(macho_file),
@@ -189,7 +189,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
             if (i >= max_common_encodings) break;
             if (slice[i].count < 2) continue;
             info.appendCommonEncoding(slice[i].enc);
-            log.debug("adding common encoding: {d} => {}", .{ i, slice[i].enc });
+            log.debug("adding common encoding: {d} => {f}", .{ i, slice[i].enc });
         }
     }
 
@@ -242,7 +242,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
                 page.kind = .compressed;
             }
 
-            log.debug("{}", .{page.fmt(info.*)});
+            log.debug("{f}", .{page.fmt(info.*)});
 
             try info.pages.append(gpa, page);
         }
@@ -605,7 +605,7 @@ const Page = struct {
         });
         try writer.print("  encodings (count = {d})\n", .{ctx.page.page_encodings_count});
         for (ctx.page.page_encodings[0..ctx.page.page_encodings_count], 0..) |enc, i| {
-            try writer.print("    {d}: {}\n", .{ ctx.info.common_encodings_count + i, enc });
+            try writer.print("    {d}: {f}\n", .{ ctx.info.common_encodings_count + i, enc });
         }
     }
 

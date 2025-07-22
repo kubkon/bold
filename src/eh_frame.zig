@@ -141,7 +141,7 @@ pub const Fde = struct {
         const pc_begin = std.mem.readInt(i64, data[8..][0..8], .little);
         const taddr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + 8)) + pc_begin);
         fde.atom = object.findAtom(taddr).unwrap() orelse {
-            macho_file.fatal("{}: {s},{s}: 0x{x}: invalid function reference in FDE", .{
+            macho_file.fatal("{f}: {s},{s}: 0x{x}: invalid function reference in FDE", .{
                 object.fmtPath(), sect.segName(), sect.sectName(), fde.offset + 8,
             });
             return error.ParseFailed;
@@ -158,7 +158,7 @@ pub const Fde = struct {
         if (cie_index) |cie| {
             fde.cie = cie;
         } else {
-            macho_file.fatal("{}: no matching CIE found for FDE at offset {x}", .{
+            macho_file.fatal("{f}: no matching CIE found for FDE at offset {x}", .{
                 object.fmtPath(),
                 fde.offset,
             });
@@ -180,7 +180,7 @@ pub const Fde = struct {
             };
             const lsda_addr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + fde.lsda_ptr_offset)) + lsda_ptr);
             const lsda = object.findAtom(lsda_addr).unwrap() orelse {
-                macho_file.fatal("{}: {s},{s}: 0x{x}: invalid LSDA reference in FDE", .{
+                macho_file.fatal("{f}: {s},{s}: 0x{x}: invalid LSDA reference in FDE", .{
                     object.fmtPath(), sect.segName(), sect.sectName(), fde.offset + fde.lsda_ptr_offset,
                 });
                 return error.ParseFailed;

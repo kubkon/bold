@@ -811,7 +811,7 @@ fn formatSymtab(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!
     for (dylib.symbols.items, 0..) |sym, i| {
         const ref = dylib.getSymbolRef(@enumFromInt(i), macho_file);
         if (ref.unwrap()) |unwrapped| {
-            try writer.print("    {}\n", .{unwrapped.getSymbol(macho_file).fmt(macho_file)});
+            try writer.print("    {f}\n", .{unwrapped.getSymbol(macho_file).fmt(macho_file)});
         } else {
             try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
         }

@@ -60,7 +60,7 @@ pub const InfoReader = struct {
                 .debug_abbrev_offset = try p.readOffset(dw_fmt),
             },
             else => {
-                err_ctx.macho_file.fatal("{}: unhandled DWARF version: {d}", .{
+                err_ctx.macho_file.fatal("{f}: unhandled DWARF version: {d}", .{
                     err_ctx.object.fmtPath(),
                     version,
                 });
@@ -100,7 +100,7 @@ pub const InfoReader = struct {
     pub fn skip(p: *InfoReader, form: Form, cuh: CompileUnitHeader, err_ctx: ErrCtx) !void {
         p.skipInner(form, cuh) catch |err| switch (err) {
             error.UnhandledForm => {
-                err_ctx.macho_file.fatal("{}: unhandled DW_FORM_* 0x{x}", .{ err_ctx.object.fmtPath(), form });
+                err_ctx.macho_file.fatal("{f}: unhandled DW_FORM_* 0x{x}", .{ err_ctx.object.fmtPath(), form });
                 return error.UnhandledForm;
             },
             else => |e| return e,

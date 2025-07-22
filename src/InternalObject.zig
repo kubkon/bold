@@ -843,7 +843,7 @@ fn formatAtoms(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!v
     try writer.writeAll("  atoms\n");
     for (ctx.self.getAtoms()) |atom_index| {
         const atom = ctx.self.getAtom(atom_index);
-        try writer.print("    {}\n", .{atom.fmt(ctx.macho_file)});
+        try writer.print("    {f}\n", .{atom.fmt(ctx.macho_file)});
     }
 }
 
@@ -861,7 +861,7 @@ fn formatSymtab(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!
     for (self.symbols.items, 0..) |sym, i| {
         const ref = self.getSymbolRef(@enumFromInt(i), macho_file);
         if (ref.unwrap()) |unwrapped| {
-            try writer.print("    {}\n", .{unwrapped.getSymbol(macho_file).fmt(macho_file)});
+            try writer.print("    {f}\n", .{unwrapped.getSymbol(macho_file).fmt(macho_file)});
         } else {
             try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
         }

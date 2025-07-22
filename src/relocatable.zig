@@ -43,7 +43,7 @@ pub fn flush(macho_file: *MachO) !void {
         seg.filesize = fileoff - seg.fileoff;
     }
 
-    state_log.debug("{}", .{macho_file.dumpState()});
+    state_log.debug("{f}", .{macho_file.dumpState()});
 
     try writeSections(macho_file);
     sortRelocs(macho_file);
@@ -400,7 +400,7 @@ fn writeAtomsWorker(macho_file: *MachO, object: *Object) void {
     const tracy = trace(@src());
     defer tracy.end();
     object.writeAtomsRelocatable(macho_file) catch |err| {
-        macho_file.fatal("{}: failed to write atoms: {s}", .{ object.fmtPath(), @errorName(err) });
+        macho_file.fatal("{f}: failed to write atoms: {s}", .{ object.fmtPath(), @errorName(err) });
         _ = macho_file.has_errors.swap(true, .seq_cst);
     };
 }
