@@ -1568,7 +1568,7 @@ fn testHelloZig(b: *Build, opts: Options) *Step {
     obj.addZigSource(
         \\const std = @import("std");
         \\pub fn main() void {
-        \\    std.io.getStdOut().writer().print("Hello world!\n", .{}) catch unreachable;
+        \\    std.fs.File.stdout().writeAll("Hello world!\n") catch unreachable;
         \\}
     );
     obj.addArg("-fno-stack-check"); // TODO find a way to include Zig's crt
@@ -4296,7 +4296,7 @@ fn cpp(b: *Build, name: []const u8, opts: Options) SysCmd {
 
 fn zig(b: *Build, name: []const u8) SysCmd {
     const cmd = Run.create(b, "zig");
-    cmd.addArgs(&.{ "zig", "build-obj" });
+    cmd.addArgs(&.{ "zig", "build-obj", "-fstrip" });
     const out = cmd.addPrefixedOutputFileArg("-femit-bin=", name);
     return .{ .cmd = cmd, .out = out };
 }

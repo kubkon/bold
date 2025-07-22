@@ -270,39 +270,19 @@ pub fn setOutputSym(symbol: Symbol, macho_file: *MachO, out: *macho.nlist_64) vo
     }
 }
 
-pub fn format(
-    symbol: Symbol,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = symbol;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format symbols directly");
-}
-
 const FormatContext = struct {
     symbol: Symbol,
     macho_file: *MachO,
 };
 
-pub fn fmt(symbol: Symbol, macho_file: *MachO) std.fmt.Formatter(format2) {
+pub fn fmt(symbol: Symbol, macho_file: *MachO) std.fmt.Formatter(FormatContext, format) {
     return .{ .data = .{
         .symbol = symbol,
         .macho_file = macho_file,
     } };
 }
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn format(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const symbol = ctx.symbol;
     try writer.print("%{d} : {s} : @{x}", .{
         symbol.nlist_idx,
@@ -433,14 +413,7 @@ pub const Index = enum(u32) {
         return result;
     }
 
-    pub fn format(
-        index: Index,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    pub fn format(index: Index, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("{d}", .{@intFromEnum(index)});
     }
 };
@@ -458,14 +431,7 @@ pub const OptionalIndex = enum(u32) {
         return @intFromEnum(opt) == @intFromEnum(other);
     }
 
-    pub fn format(
-        opt: OptionalIndex,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    pub fn format(opt: OptionalIndex, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         if (opt == .none) {
             try writer.writeAll(".none");
         } else {

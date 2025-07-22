@@ -21,10 +21,10 @@ pub const Cie = struct {
         var creader = std.io.countingReader(stream.reader());
         const reader = creader.reader();
 
-        _ = try leb.readULEB128(u64, reader); // code alignment factor
-        _ = try leb.readULEB128(u64, reader); // data alignment factor
-        _ = try leb.readULEB128(u64, reader); // return address register
-        _ = try leb.readULEB128(u64, reader); // augmentation data length
+        _ = try leb.readUleb128(u64, reader); // code alignment factor
+        _ = try leb.readUleb128(u64, reader); // data alignment factor
+        _ = try leb.readUleb128(u64, reader); // return address register
+        _ = try leb.readUleb128(u64, reader); // augmentation data length
 
         for (aug[1..]) |ch| switch (ch) {
             'R' => {
@@ -80,20 +80,7 @@ pub const Cie = struct {
         return true;
     }
 
-    pub fn format(
-        cie: Cie,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = cie;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format CIEs directly");
-    }
-
-    pub fn fmt(cie: Cie, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(cie: Cie, macho_file: *MachO) std.fmt.Formatter(FormatContext, format) {
         return .{ .data = .{
             .cie = cie,
             .macho_file = macho_file,
@@ -105,14 +92,7 @@ pub const Cie = struct {
         macho_file: *MachO,
     };
 
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn format(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const cie = ctx.cie;
         try writer.print("@{x} : size({x})", .{
             cie.offset,
@@ -124,14 +104,7 @@ pub const Cie = struct {
     pub const Index = enum(u32) {
         _,
 
-        pub fn format(
-            index: Index,
-            comptime unused_fmt_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = unused_fmt_string;
-            _ = options;
+        pub fn format(index: Index, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             try writer.print("{d}", .{@intFromEnum(index)});
         }
     };
@@ -168,7 +141,7 @@ pub const Fde = struct {
         const pc_begin = std.mem.readInt(i64, data[8..][0..8], .little);
         const taddr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + 8)) + pc_begin);
         fde.atom = object.findAtom(taddr).unwrap() orelse {
-            macho_file.fatal("{}: {s},{s}: 0x{x}: invalid function reference in FDE", .{
+            macho_file.fatal("{f}: {s},{s}: 0x{x}: invalid function reference in FDE", .{
                 object.fmtPath(), sect.segName(), sect.sectName(), fde.offset + 8,
             });
             return error.ParseFailed;
@@ -185,7 +158,7 @@ pub const Fde = struct {
         if (cie_index) |cie| {
             fde.cie = cie;
         } else {
-            macho_file.fatal("{}: no matching CIE found for FDE at offset {x}", .{
+            macho_file.fatal("{f}: no matching CIE found for FDE at offset {x}", .{
                 object.fmtPath(),
                 fde.offset,
             });
@@ -199,7 +172,7 @@ pub const Fde = struct {
             var stream = std.io.fixedBufferStream(data[24..]);
             var creader = std.io.countingReader(stream.reader());
             const reader = creader.reader();
-            _ = try leb.readULEB128(u64, reader); // augmentation length
+            _ = try leb.readUleb128(u64, reader); // augmentation length
             fde.lsda_ptr_offset = @intCast(creader.bytes_read + 24);
             const lsda_ptr = switch (lsda_size) {
                 .p32 => try reader.readInt(i32, .little),
@@ -207,7 +180,7 @@ pub const Fde = struct {
             };
             const lsda_addr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + fde.lsda_ptr_offset)) + lsda_ptr);
             const lsda = object.findAtom(lsda_addr).unwrap() orelse {
-                macho_file.fatal("{}: {s},{s}: 0x{x}: invalid LSDA reference in FDE", .{
+                macho_file.fatal("{f}: {s},{s}: 0x{x}: invalid LSDA reference in FDE", .{
                     object.fmtPath(), sect.segName(), sect.sectName(), fde.offset + fde.lsda_ptr_offset,
                 });
                 return error.ParseFailed;
@@ -245,20 +218,7 @@ pub const Fde = struct {
         return fde.getObject(macho_file).getAtom(atom_index);
     }
 
-    pub fn format(
-        fde: Fde,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fde;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format FDEs directly");
-    }
-
-    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Formatter(FormatContext, format) {
         return .{ .data = .{
             .fde = fde,
             .macho_file = macho_file,
@@ -270,14 +230,7 @@ pub const Fde = struct {
         macho_file: *MachO,
     };
 
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn format(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const fde = ctx.fde;
         const macho_file = ctx.macho_file;
         try writer.print("@{x} : size({x}) : cie({d}) : {s}", .{

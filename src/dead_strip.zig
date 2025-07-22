@@ -113,7 +113,7 @@ fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
 fn markLive(atom: *Atom, macho_file: *MachO) void {
     assert(atom.visited.load(.seq_cst));
     _ = atom.alive.swap(true, .seq_cst);
-    track_live_log.debug("{}marking live atom({d},{s})", .{
+    track_live_log.debug("{f}marking live atom({d},{s})", .{
         track_live_level,
         atom.atom_index,
         atom.getName(macho_file),
@@ -192,15 +192,9 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(
-        self: *const @This(),
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        try writer.writeByteNTimes(' ', self.value);
+    pub fn format(self: *const @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const indentation = try writer.writableSlice(self.value);
+        @memset(indentation, ' ');
     }
 };
 

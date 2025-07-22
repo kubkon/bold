@@ -263,7 +263,7 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
                 const symbol = rel.getTargetSymbol(self, macho_file);
                 if (!symbol.flags.tlv) {
                     macho_file.fatal(
-                        "{}: {s}: illegal thread-local variable reference to regular symbol {s}",
+                        "{f}: {s}: illegal thread-local variable reference to regular symbol {s}",
                         .{ object.fmtPath(), self.getName(macho_file), symbol.getName(macho_file) },
                     );
                 }
@@ -348,7 +348,7 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
         self.resolveRelocInner(rel, subtractor, buffer, macho_file, stream.writer()) catch |err| {
             switch (err) {
                 error.RelaxFail => macho_file.fatal(
-                    "{}: {s}: 0x{x}: failed to relax relocation: in {s}",
+                    "{f}: {s}: 0x{x}: failed to relax relocation: in {s}",
                     .{ file.fmtPath(), name, rel.offset, @tagName(rel.type) },
                 ),
                 else => |e| return e,
@@ -390,7 +390,7 @@ fn resolveRelocInner(
         fn divExact(atom: Atom, r: Relocation, num: u12, den: u12, ctx: *MachO) !u12 {
             return math.divExact(u12, num, den) catch {
                 const object = atom.getFile(ctx).object;
-                ctx.fatal("{}: {s}: unexpected remainder when resolving {s} at offset 0x{x}", .{
+                ctx.fatal("{f}: {s}: unexpected remainder when resolving {f} at offset 0x{x}", .{
                     object.fmtPath(),
                     atom.getName(ctx),
                     r.fmtPretty(ctx.options.cpu_arch.?),
@@ -635,7 +635,7 @@ fn relaxGotLoad(code: []u8) error{RelaxFail}!void {
     switch (old_inst.encoding.mnemonic) {
         .mov => {
             const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops) catch return error.RelaxFail;
-            relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+            relocs_log.debug("    relaxing {f} => {f}", .{ old_inst.encoding, inst.encoding });
             encode(&.{inst}, code) catch return error.RelaxFail;
         },
         else => return error.RelaxFail,
@@ -647,7 +647,7 @@ fn relaxTlv(code: []u8) error{RelaxFail}!void {
     switch (old_inst.encoding.mnemonic) {
         .mov => {
             const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops) catch return error.RelaxFail;
-            relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
+            relocs_log.debug("    relaxing {f} => {f}", .{ old_inst.encoding, inst.encoding });
             encode(&.{inst}, code) catch return error.RelaxFail;
         },
         else => return error.RelaxFail,
@@ -811,20 +811,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
     assert(i == buffer.len);
 }
 
-pub fn format(
-    atom: Atom,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = atom;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format Atom directly");
-}
-
-pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Formatter(format2) {
+pub fn fmt(atom: Atom, macho_file: *MachO) std.fmt.Formatter(FormatContext, format) {
     return .{ .data = .{
         .atom = atom,
         .macho_file = macho_file,
@@ -836,18 +823,11 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn format(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const atom = ctx.atom;
     const macho_file = ctx.macho_file;
     const file = atom.getFile(macho_file);
-    try writer.print("atom({}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : thunk({d})", .{
+    try writer.print("atom({f}) : {s} : @{x} : sect({d}) : align({x}) : size({x}) : thunk({d})", .{
         atom.atom_index,                 atom.getName(macho_file), atom.getAddress(macho_file),
         atom.out_n_sect,                 atom.alignment,           atom.size,
         atom.getExtra(macho_file).thunk,
@@ -881,14 +861,7 @@ pub const Index = enum(u32) {
         return result;
     }
 
-    pub fn format(
-        index: Index,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    pub fn format(index: Index, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("{d}", .{@intFromEnum(index)});
     }
 };
@@ -902,14 +875,7 @@ pub const OptionalIndex = enum(u32) {
         return @enumFromInt(@intFromEnum(opt));
     }
 
-    pub fn format(
-        opt: OptionalIndex,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    pub fn format(opt: OptionalIndex, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         if (opt == .none) {
             try writer.writeAll(".none");
         } else {

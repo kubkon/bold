@@ -121,7 +121,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     for (info.records.items) |ref| {
         const rec = ref.getUnwindRecord(macho_file);
         const atom = rec.getAtom(macho_file);
-        log.debug("@{x}-{x} : {s} : rec({d}) : {}", .{
+        log.debug("@{x}-{x} : {s} : rec({d}) : {f}", .{
             rec.getAtomAddress(macho_file),
             rec.getAtomAddress(macho_file) + rec.length,
             atom.getName(macho_file),
@@ -189,7 +189,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
             if (i >= max_common_encodings) break;
             if (slice[i].count < 2) continue;
             info.appendCommonEncoding(slice[i].enc);
-            log.debug("adding common encoding: {d} => {}", .{ i, slice[i].enc });
+            log.debug("adding common encoding: {d} => {f}", .{ i, slice[i].enc });
         }
     }
 
@@ -242,7 +242,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
                 page.kind = .compressed;
             }
 
-            log.debug("{}", .{page.fmt(info.*)});
+            log.debug("{f}", .{page.fmt(info.*)});
 
             try info.pages.append(gpa, page);
         }
@@ -445,14 +445,7 @@ pub const Encoding = extern struct {
         return enc.enc == other.enc;
     }
 
-    pub fn format(
-        enc: Encoding,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    pub fn format(enc: Encoding, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("0x{x:0>8}", .{enc.enc});
     }
 };
@@ -510,20 +503,7 @@ pub const Record = struct {
         return lsda.getAddress(macho_file) + rec.lsda_offset;
     }
 
-    pub fn format(
-        rec: Record,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = rec;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format UnwindInfo.Records directly");
-    }
-
-    pub fn fmt(rec: Record, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(rec: Record, macho_file: *MachO) std.fmt.Formatter(FormatContext, format) {
         return .{ .data = .{
             .rec = rec,
             .macho_file = macho_file,
@@ -535,14 +515,7 @@ pub const Record = struct {
         macho_file: *MachO,
     };
 
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn format(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const rec = ctx.rec;
         const macho_file = ctx.macho_file;
         try writer.print("{x} : len({x})", .{
@@ -560,14 +533,7 @@ pub const Record = struct {
             return @enumFromInt(@intFromEnum(index) | @as(u64, @intFromEnum(file)) << 32);
         }
 
-        pub fn format(
-            index: Index,
-            comptime unused_fmt_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = unused_fmt_string;
-            _ = options;
+        pub fn format(index: Index, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             try writer.print("{d}", .{@intFromEnum(index)});
         }
     };
@@ -625,32 +591,12 @@ const Page = struct {
         return null;
     }
 
-    fn format(
-        page: *const Page,
-        comptime unused_format_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = page;
-        _ = unused_format_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format Page directly; use page.fmt()");
-    }
-
     const FormatPageContext = struct {
         page: Page,
         info: UnwindInfo,
     };
 
-    fn format2(
-        ctx: FormatPageContext,
-        comptime unused_format_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = options;
-        _ = unused_format_string;
+    fn format(ctx: FormatPageContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.writeAll("Page:\n");
         try writer.print("  kind: {s}\n", .{@tagName(ctx.page.kind)});
         try writer.print("  entries: {d} - {d}\n", .{
@@ -659,11 +605,11 @@ const Page = struct {
         });
         try writer.print("  encodings (count = {d})\n", .{ctx.page.page_encodings_count});
         for (ctx.page.page_encodings[0..ctx.page.page_encodings_count], 0..) |enc, i| {
-            try writer.print("    {d}: {}\n", .{ ctx.info.common_encodings_count + i, enc });
+            try writer.print("    {d}: {f}\n", .{ ctx.info.common_encodings_count + i, enc });
         }
     }
 
-    fn fmt(page: Page, info: UnwindInfo) std.fmt.Formatter(format2) {
+    fn fmt(page: Page, info: UnwindInfo) std.fmt.Formatter(FormatPageContext, format) {
         return .{ .data = .{
             .page = page,
             .info = info,

@@ -832,50 +832,36 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-pub fn fmtAtoms(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(formatAtoms) {
+pub fn fmtAtoms(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(FormatContext, formatAtoms) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatAtoms(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.writeAll("  atoms\n");
     for (ctx.self.getAtoms()) |atom_index| {
         const atom = ctx.self.getAtom(atom_index);
-        try writer.print("    {}\n", .{atom.fmt(ctx.macho_file)});
+        try writer.print("    {f}\n", .{atom.fmt(ctx.macho_file)});
     }
 }
 
-pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(FormatContext, formatSymtab) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,
     } };
 }
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatSymtab(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const macho_file = ctx.macho_file;
     const self = ctx.self;
     try writer.writeAll("  symbols\n");
     for (self.symbols.items, 0..) |sym, i| {
         const ref = self.getSymbolRef(@enumFromInt(i), macho_file);
         if (ref.unwrap()) |unwrapped| {
-            try writer.print("    {}\n", .{unwrapped.getSymbol(macho_file).fmt(macho_file)});
+            try writer.print("    {f}\n", .{unwrapped.getSymbol(macho_file).fmt(macho_file)});
         } else {
             try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
         }

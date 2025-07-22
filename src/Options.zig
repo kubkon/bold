@@ -692,14 +692,7 @@ pub const Version = struct {
         return .{ .value = (@as(u32, @intCast(maj)) << 16) | (@as(u32, @intCast(min)) << 8) | pat };
     }
 
-    pub fn format(
-        v: Version,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    pub fn format(v: Version, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("{d}.{d}.{d}", .{
             v.major(),
             v.minor(),

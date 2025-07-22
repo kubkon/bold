@@ -298,7 +298,7 @@ pub fn link(self: *MachO) !void {
     self.allocateSegments();
     self.allocateSyntheticSymbols();
 
-    state_log.debug("{}", .{self.dumpState()});
+    state_log.debug("{f}", .{self.dumpState()});
 
     try self.resizeSections();
     try self.writeSectionsAndUpdateLinkeditSizes();
@@ -456,7 +456,7 @@ fn resolvePaths(
                     var buffer: [fs.max_path_bytes]u8 = undefined;
                     const full_path = std.fs.realpath(obj.path, &buffer) catch |err| switch (err) {
                         error.FileNotFound => {
-                            self.fatal("file not found {}", .{obj});
+                            self.fatal("file not found {f}", .{obj});
                             has_resolve_error = true;
                             continue;
                         },
@@ -468,7 +468,7 @@ fn resolvePaths(
                     const full_path = (try self.resolveLib(arena, lib_dirs, obj.path)) orelse {
                         const err = try self.addErrorWithNotes(lib_dirs.len);
                         defer err.unlock();
-                        try err.addMsg("library not found for {}", .{obj});
+                        try err.addMsg("library not found for {f}", .{obj});
                         for (lib_dirs) |dir| try err.addNote("tried {s}", .{dir});
                         has_resolve_error = true;
                         continue;
@@ -479,7 +479,7 @@ fn resolvePaths(
                     const full_path = (try self.resolveFramework(arena, framework_dirs, obj.path)) orelse {
                         const err = try self.addErrorWithNotes(framework_dirs.len);
                         defer err.unlock();
-                        try err.addMsg("framework not found for {}", .{obj});
+                        try err.addMsg("framework not found for {f}", .{obj});
                         for (framework_dirs) |dir| try err.addNote("tried {s}", .{dir});
                         has_resolve_error = true;
                         continue;
@@ -543,7 +543,11 @@ fn inferCpuArchAndPlatformInObject(self: *MachO, obj: LinkObject, platforms: any
     const file = try std.fs.cwd().openFile(obj.path, .{});
     defer file.close();
 
-    const header = file.reader().readStruct(macho.mach_header_64) catch return;
+    var buffer: [1024]u8 = undefined;
+    var fr = file.reader(&buffer);
+    const reader = &fr.interface;
+
+    const header = reader.takeStruct(macho.mach_header_64, .little) catch return;
     if (header.filetype != macho.MH_OBJECT) return;
 
     const cpu_arch: std.Target.Cpu.Arch = switch (header.cputype) {
@@ -563,8 +567,7 @@ fn inferCpuArchAndPlatformInObject(self: *MachO, obj: LinkObject, platforms: any
 
     const cmds_buffer = try gpa.alloc(u8, header.sizeofcmds);
     defer gpa.free(cmds_buffer);
-    const amt = file.reader().readAll(cmds_buffer) catch return;
-    if (amt != header.sizeofcmds) return;
+    reader.readSliceAll(cmds_buffer) catch return;
 
     var it = macho.LoadCommandIterator{
         .ncmds = header.ncmds,
@@ -586,7 +589,7 @@ fn classifyInputFile(self: *MachO, obj: LinkObject) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    log.debug("parsing positional {}", .{obj});
+    log.debug("parsing positional {f}", .{obj});
 
     const file = try std.fs.cwd().openFile(obj.path, .{});
     const fh = try self.addFileHandle(file);
@@ -716,7 +719,7 @@ fn parseObjectWorker(self: *MachO, index: File.Index) void {
     object.parse(self) catch |err| {
         switch (err) {
             error.ParseFailed => {}, // reported
-            else => |e| self.fatal("{}: unxexpected error occurred while parsing input file: {s}", .{
+            else => |e| self.fatal("{f}: unxexpected error occurred while parsing input file: {s}", .{
                 object.fmtPath(),
                 @errorName(e),
             }),
@@ -807,10 +810,9 @@ fn parseDylibWorker(self: *MachO, index: File.Index) void {
     dylib.parse(self) catch |err| {
         switch (err) {
             error.ParseFailed => {}, // reported already
-            else => |e| self.fatal("{s}: unexpected error occurred while parsing input file: {s}: {?}", .{
+            else => |e| self.fatal("{s}: unexpected error occurred while parsing input file: {s}", .{
                 dylib.path,
                 @errorName(e),
-                @errorReturnTrace(),
             }),
         }
         _ = self.has_errors.swap(true, .seq_cst);
@@ -866,7 +868,7 @@ fn dedupDylibs(self: *MachO, resolved_objects: []const LinkObject) !void {
         if (!gop.found_existing) continue;
 
         if (cmd_object.tag == .lib) {
-            self.warn("ignoring duplicate libraries: {}", .{cmd_object});
+            self.warn("ignoring duplicate libraries: {f}", .{cmd_object});
         }
 
         marker.* = true;
@@ -1139,7 +1141,7 @@ fn convertTentativeDefinitionsWorker(self: *MachO, index: File.Index) void {
 
     const object = self.getFile(index).object;
     object.convertTentativeDefinitions(self) catch |err| {
-        self.fatal("{s}: unexpected error occurred while converting tentative symbols into defined symbols: {s}", .{
+        self.fatal("{f}: unexpected error occurred while converting tentative symbols into defined symbols: {s}", .{
             object.fmtPath(),
             @errorName(err),
         });
@@ -1251,7 +1253,7 @@ fn checkDuplicatesWorker(self: *MachO, file: File) void {
     const tracy = trace(@src());
     defer tracy.end();
     file.checkDuplicates(self) catch |err| {
-        self.fatal("{}: failed to check duplicate definitions: {s}", .{
+        self.fatal("{f}: failed to check duplicate definitions: {s}", .{
             file.fmtPath(),
             @errorName(err),
         });
@@ -1293,12 +1295,12 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
         const err = try self.addErrorWithNotes(nnotes + 1);
         defer err.unlock();
         try err.addMsg("duplicate symbol definition: {s}", .{sym.getName(self)});
-        try err.addNote("defined by {}", .{sym.getFile(self).fmtPath()});
+        try err.addNote("defined by {f}", .{sym.getFile(self).fmtPath()});
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
             const file = self.getFile(notes.items[inote]);
-            try err.addNote("defined by {}", .{file.fmtPath()});
+            try err.addNote("defined by {f}", .{file.fmtPath()});
         }
 
         if (notes.items.len > max_notes) {
@@ -1346,7 +1348,7 @@ fn scanRelocs(self: *MachO) !void {
 
 fn scanRelocsWorker(self: *MachO, file: File) void {
     file.scanRelocs(self) catch |err| {
-        self.fatal("{}: failed to scan relocations: {s}", .{
+        self.fatal("{f}: failed to scan relocations: {s}", .{
             file.fmtPath(),
             @errorName(err),
         });
@@ -1438,7 +1440,7 @@ fn reportUndefs(self: *MachO) !void {
                     const ref = refs.items[inote].unwrap().?;
                     const file = self.getFile(ref.file);
                     const atom = file.getAtom(ref.atom);
-                    try err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
+                    try err.addNote("referenced by {f}:{s}", .{ file.fmtPath(), atom.getName(self) });
                 }
 
                 if (refs.items.len > max_notes) {
@@ -2289,7 +2291,7 @@ fn writeAtomsWorker(self: *MachO, index: File.Index) void {
     const tracy = trace(@src());
     defer tracy.end();
     self.getFile(index).writeAtoms(self) catch |err| {
-        self.fatal("{}: failed to write atoms: {s}", .{
+        self.fatal("{f}: failed to write atoms: {s}", .{
             self.getFile(index).fmtPath(),
             @errorName(err),
         });
@@ -2992,7 +2994,7 @@ fn createThunks(self: *MachO, sect_id: u8) !void {
         try scanRelocations(thunk_index, gpa, atoms[start..i], self);
         thunk.value = try advance(header, thunk.size(), 2);
 
-        log.debug("thunk({d}) : {}", .{ thunk_index, thunk.fmt(self) });
+        log.debug("thunk({d}) : {f}", .{ thunk_index, thunk.fmt(self) });
     }
 }
 
@@ -3001,28 +3003,21 @@ pub fn eatPrefix(path: []const u8, prefix: []const u8) ?[]const u8 {
     return null;
 }
 
-pub fn dumpState(self: *MachO) std.fmt.Formatter(fmtDumpState) {
+pub fn dumpState(self: *MachO) std.fmt.Formatter(*MachO, fmtDumpState) {
     return .{ .data = self };
 }
 
-fn fmtDumpState(
-    self: *MachO,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn fmtDumpState(self: *MachO, writer: *Writer) Writer.Error!void {
     for (self.objects.items) |index| {
         const object = self.getFile(index).object;
-        try writer.print("object({d}) : {} : has_debug({})", .{
+        try writer.print("object({d}) : {f} : has_debug({any})", .{
             index,
             object.fmtPath(),
             object.hasDebugInfo(),
         });
         if (!object.alive) try writer.writeAll(" : ([*])");
         try writer.writeByte('\n');
-        try writer.print("{}{}{}{}{}\n", .{
+        try writer.print("{f}{f}{f}{f}{f}\n", .{
             object.fmtAtoms(self),
             object.fmtCies(self),
             object.fmtFdes(self),
@@ -3032,7 +3027,7 @@ fn fmtDumpState(
     }
     for (self.dylibs.items) |index| {
         const dylib = self.getFile(index).dylib;
-        try writer.print("dylib({d}) : {s} : needed({}) : weak({})", .{
+        try writer.print("dylib({d}) : {s} : needed({any}) : weak({any})", .{
             index,
             dylib.path,
             dylib.needed,
@@ -3040,37 +3035,30 @@ fn fmtDumpState(
         });
         if (!dylib.isAlive(self)) try writer.writeAll(" : ([*])");
         try writer.writeByte('\n');
-        try writer.print("{}\n", .{dylib.fmtSymtab(self)});
+        try writer.print("{f}\n", .{dylib.fmtSymtab(self)});
     }
     if (self.getInternalObject()) |internal| {
         try writer.print("internal({d}) : internal\n", .{internal.index});
-        try writer.print("{}{}\n", .{ internal.fmtAtoms(self), internal.fmtSymtab(self) });
+        try writer.print("{f}{f}\n", .{ internal.fmtAtoms(self), internal.fmtSymtab(self) });
     }
     try writer.writeAll("thunks\n");
     for (self.thunks.items, 0..) |thunk, index| {
-        try writer.print("thunk({d}) : {}\n", .{ index, thunk.fmt(self) });
+        try writer.print("thunk({d}) : {f}\n", .{ index, thunk.fmt(self) });
     }
-    try writer.print("stubs\n{}\n", .{self.stubs.fmt(self)});
-    try writer.print("objc_stubs\n{}\n", .{self.objc_stubs.fmt(self)});
-    try writer.print("got\n{}\n", .{self.got.fmt(self)});
-    try writer.print("tlv_ptr\n{}\n", .{self.tlv_ptr.fmt(self)});
+    try writer.print("stubs\n{f}\n", .{self.stubs.fmt(self)});
+    try writer.print("objc_stubs\n{f}\n", .{self.objc_stubs.fmt(self)});
+    try writer.print("got\n{f}\n", .{self.got.fmt(self)});
+    try writer.print("tlv_ptr\n{f}\n", .{self.tlv_ptr.fmt(self)});
     try writer.writeByte('\n');
-    try writer.print("sections\n{}\n", .{self.fmtSections()});
-    try writer.print("segments\n{}\n", .{self.fmtSegments()});
+    try writer.print("sections\n{f}\n", .{self.fmtSections()});
+    try writer.print("segments\n{f}\n", .{self.fmtSegments()});
 }
 
-fn fmtSections(self: *MachO) std.fmt.Formatter(formatSections) {
+fn fmtSections(self: *MachO) std.fmt.Formatter(*MachO, formatSections) {
     return .{ .data = self };
 }
 
-fn formatSections(
-    self: *MachO,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn formatSections(self: *MachO, writer: *Writer) Writer.Error!void {
     const slice = self.sections.slice();
     for (slice.items(.header), slice.items(.segment_id), 0..) |header, seg_id, i| {
         try writer.print("sect({d}) : seg({d}) : {s},{s} : @{x} ({x}) : align({x}) : size({x})\n", .{
@@ -3080,18 +3068,11 @@ fn formatSections(
     }
 }
 
-fn fmtSegments(self: *MachO) std.fmt.Formatter(formatSegments) {
+fn fmtSegments(self: *MachO) std.fmt.Formatter(*MachO, formatSegments) {
     return .{ .data = self };
 }
 
-fn formatSegments(
-    self: *MachO,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn formatSegments(self: *MachO, writer: *Writer) Writer.Error!void {
     for (self.segments.items, 0..) |seg, i| {
         try writer.print("seg({d}) : {s} : @{x}-{x} ({x}-{x})\n", .{
             i,           seg.segName(),              seg.vmaddr, seg.vmaddr + seg.vmsize,
@@ -3100,18 +3081,11 @@ fn formatSegments(
     }
 }
 
-pub fn fmtSectType(tt: u8) std.fmt.Formatter(formatSectType) {
+pub fn fmtSectType(tt: u8) std.fmt.Formatter(u8, formatSectType) {
     return .{ .data = tt };
 }
 
-fn formatSectType(
-    tt: u8,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
+fn formatSectType(tt: u8, writer: *Writer) Writer.Error!void {
     const name = switch (tt) {
         macho.S_REGULAR => "REGULAR",
         macho.S_ZEROFILL => "ZEROFILL",
@@ -3154,14 +3128,7 @@ pub const LinkObject = struct {
     reexport: bool = false,
     must_link: bool = false,
 
-    pub fn format(
-        self: LinkObject,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
+    pub fn format(self: LinkObject, writer: *Writer) Writer.Error!void {
         switch (self.tag) {
             .lib => if (self.needed) {
                 try writer.writeAll("-needed-l");
@@ -3578,13 +3545,13 @@ pub fn getAllErrorsAlloc(self: *MachO) !ErrorBundle {
 }
 
 fn renderWarningToStdErr(eb: ErrorBundle) void {
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
-    const stderr = std.io.getStdErr();
-    return renderWarningToWriter(eb, stderr.writer()) catch return;
+    var buffer: [256]u8 = undefined;
+    const w = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+    return renderWarningToWriter(eb, w) catch return;
 }
 
-fn renderWarningToWriter(eb: ErrorBundle, writer: anytype) !void {
+fn renderWarningToWriter(eb: ErrorBundle, writer: *Writer) !void {
     for (eb.getMessages()) |msg| {
         try renderWarningMessageToWriter(eb, msg, writer, "warning", .cyan, 0);
     }
@@ -3593,15 +3560,16 @@ fn renderWarningToWriter(eb: ErrorBundle, writer: anytype) !void {
 fn renderWarningMessageToWriter(
     eb: ErrorBundle,
     err_msg_index: ErrorBundle.MessageIndex,
-    stderr: anytype,
+    stderr: *Writer,
     kind: []const u8,
     color: std.io.tty.Color,
     indent: usize,
 ) anyerror!void {
-    const ttyconf = std.io.tty.detectConfig(std.io.getStdErr());
+    const ttyconf = std.io.tty.detectConfig(std.fs.File.stderr());
     const err_msg = eb.getErrorMessage(err_msg_index);
     try ttyconf.setColor(stderr, color);
-    try stderr.writeByteNTimes(' ', indent);
+    const indentation = try stderr.writableSlice(indent);
+    @memset(indentation, ' ');
     try stderr.writeAll(kind);
     try stderr.writeAll(": ");
     try ttyconf.setColor(stderr, .reset);
@@ -3623,7 +3591,7 @@ pub fn reportErrors(self: *MachO) void {
     var errors = self.getAllErrorsAlloc() catch @panic("OOM");
     defer errors.deinit(self.allocator);
     if (errors.errorMessageCount() > 0) {
-        errors.renderToStdErr(.{ .ttyconf = std.io.tty.detectConfig(std.io.getStdErr()) });
+        errors.renderToStdErr(.{ .ttyconf = std.io.tty.detectConfig(std.fs.File.stderr()) });
     }
 }
 
@@ -3633,10 +3601,6 @@ pub fn reportWarnings(self: *MachO) void {
     if (warnings.errorMessageCount() > 0) {
         renderWarningToStdErr(warnings);
     }
-}
-
-test {
-    std.testing.refAllDeclsRecursive(MachO);
 }
 
 const aarch64 = @import("aarch64.zig");
@@ -3696,3 +3660,4 @@ const TlvPtrSection = synthetic.TlvPtrSection;
 const UnwindInfo = @import("UnwindInfo.zig");
 const WaitGroup = std.Thread.WaitGroup;
 const WeakBind = synthetic.WeakBind;
+const Writer = std.Io.Writer;

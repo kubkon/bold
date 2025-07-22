@@ -148,7 +148,7 @@ fn parseBinary(self: *Dylib, macho_file: *MachO) !void {
         if (match) |this_plat| {
             if (this_plat.version.value > plat.version.value) {
                 macho_file.warn(
-                    "{s}: object file was built for newer platform version: expected {}, got {}",
+                    "{s}: object file was built for newer platform version: expected {f}, got {f}",
                     .{
                         self.path,
                         plat.version,
@@ -179,11 +179,11 @@ const TrieIterator = struct {
         return std.io.fixedBufferStream(it.data[it.pos..]);
     }
 
-    fn readULEB128(it: *TrieIterator) !u64 {
+    fn readUleb128(it: *TrieIterator) !u64 {
         var stream = it.getStream();
         var creader = std.io.countingReader(stream.reader());
         const reader = creader.reader();
-        const value = try std.leb.readULEB128(u64, reader);
+        const value = try std.leb.readUleb128(u64, reader);
         it.pos += creader.bytes_read;
         return value;
     }
@@ -233,9 +233,9 @@ fn parseTrieNode(
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    const size = try it.readULEB128();
+    const size = try it.readUleb128();
     if (size > 0) {
-        const flags = try it.readULEB128();
+        const flags = try it.readUleb128();
         const kind = flags & macho.EXPORT_SYMBOL_FLAGS_KIND_MASK;
         const out_flags = Export.Flags{
             .abs = kind == macho.EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE,
@@ -243,21 +243,21 @@ fn parseTrieNode(
             .weak = flags & macho.EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION != 0,
         };
         if (flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT != 0) {
-            _ = try it.readULEB128(); // dylib ordinal
+            _ = try it.readUleb128(); // dylib ordinal
             const name = try it.readString();
             try self.exports.append(allocator, .{
                 .name = try self.addString(allocator, if (name.len > 0) name else prefix),
                 .flags = out_flags,
             });
         } else if (flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER != 0) {
-            _ = try it.readULEB128(); // stub offset
-            _ = try it.readULEB128(); // resolver offset
+            _ = try it.readUleb128(); // stub offset
+            _ = try it.readUleb128(); // resolver offset
             try self.exports.append(allocator, .{
                 .name = try self.addString(allocator, prefix),
                 .flags = out_flags,
             });
         } else {
-            _ = try it.readULEB128(); // VM offset
+            _ = try it.readUleb128(); // VM offset
             try self.exports.append(allocator, .{
                 .name = try self.addString(allocator, prefix),
                 .flags = out_flags,
@@ -269,7 +269,7 @@ fn parseTrieNode(
 
     for (0..nedges) |_| {
         const label = try it.readString();
-        const off = try it.readULEB128();
+        const off = try it.readUleb128();
         const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
         const curr = it.pos;
         it.pos = off;
@@ -792,20 +792,7 @@ pub fn setSymbolExtra(self: *Dylib, index: u32, extra: Symbol.Extra) void {
     }
 }
 
-pub fn format(
-    self: *Dylib,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = self;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format dylib directly");
-}
-
-pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Formatter(FormatContext, formatSymtab) {
     return .{ .data = .{
         .dylib = self,
         .macho_file = macho_file,
@@ -817,21 +804,14 @@ const FormatContext = struct {
     macho_file: *MachO,
 };
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatSymtab(ctx: FormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const dylib = ctx.dylib;
     const macho_file = ctx.macho_file;
     try writer.writeAll("  globals\n");
     for (dylib.symbols.items, 0..) |sym, i| {
         const ref = dylib.getSymbolRef(@enumFromInt(i), macho_file);
         if (ref.unwrap()) |unwrapped| {
-            try writer.print("    {}\n", .{unwrapped.getSymbol(macho_file).fmt(macho_file)});
+            try writer.print("    {f}\n", .{unwrapped.getSymbol(macho_file).fmt(macho_file)});
         } else {
             try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
         }
