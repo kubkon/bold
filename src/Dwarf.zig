@@ -60,8 +60,15 @@ pub const InfoReader = struct {
                 .debug_abbrev_offset = try p.readOffset(dw_fmt),
             },
             else => {
-                err_ctx.macho_file.fatal("{f}: unhandled DWARF version: {d}", .{
+                const err = try err_ctx.macho_file.addErrorWithNotes(2);
+                defer err.unlock();
+                try err.addMsg("{f}: unhandled DWARF version: {d}", .{
                     err_ctx.object.fmtPath(),
+                    version,
+                });
+                try err.addNote("parsed DWARF header: {{ .length = {d}, .dw_fmt = {t}, .version = {d} }}", .{
+                    length,
+                    dw_fmt,
                     version,
                 });
                 return error.InvalidVersion;
